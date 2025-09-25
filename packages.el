@@ -53,3 +53,8 @@
 (package! flycheck-inline)
 (package! poetry)
 (package! format-all)
+(package! org-roam)
+(package! org-download)
+(package! websocket)
+(package! org-roam-ui)
+(package! prettier)
