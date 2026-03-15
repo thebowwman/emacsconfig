@@ -76,57 +76,331 @@
 ;; they are implemented.
 
 
-;; To load the enviroment variable to emacs config
-(when (memq window-system '(mac ns x))
-  (use-package exec-path-from-shell
-    :config
-    (setq exec-path-from-shell-variables '("PATH" "PYENV_ROOT" "POETRY_HOME"))
+;; -------------------------------
+;; Buffer Management - Auto-close inactive saved buffers
+;; -------------------------------
+
+(defvar my/buffer-idle-timeout (* 10 60) ; 10 minutes in seconds
+  "Time in seconds before an inactive saved buffer is automatically closed.")
+
+(defvar my/buffer-never-kill-list
+  '("*scratch*" "*Messages*" "*dashboard*" "*doom*")
+  "List of buffer names that should never be auto-killed.")
+
+(defvar my/buffer-never-kill-patterns
+  '("^magit" "^\\*Org Src" "^\\*Org Agenda")
+  "Regexp patterns for buffers that should never be auto-killed.")
+
+(defun my/should-auto-kill-buffer-p (buffer)
+  "Return non-nil if BUFFER should be auto-killed when inactive."
+  (let ((name (buffer-name buffer)))
+    (and
+     ;; Has a file
+     (buffer-file-name buffer)
+     ;; Not modified (saved)
+     (not (buffer-modified-p buffer))
+     ;; Not in never-kill list
+     (not (member name my/buffer-never-kill-list))
+     ;; Doesn't match never-kill patterns
+     (not (cl-some (lambda (pattern) (string-match-p pattern name))
+                   my/buffer-never-kill-patterns))
+     ;; Not currently visible in any window
+     (not (get-buffer-window buffer t)))))
+
+(defun my/kill-idle-buffers ()
+  "Kill buffers that are saved and have been inactive for more than `my/buffer-idle-timeout'."
+  (interactive)
+  (let ((current-time (current-time))
+        (killed-count 0))
+    (dolist (buffer (buffer-list))
+      (when (my/should-auto-kill-buffer-p buffer)
+        (let* ((last-access (or (buffer-local-value 'buffer-display-time buffer)
+                               (visited-file-modtime buffer)))
+               (idle-time (if (time-less-p last-access current-time)
+                              (time-to-seconds (time-subtract current-time last-access))
+                            0)))
+          (when (> idle-time my/buffer-idle-timeout)
+            (kill-buffer buffer)
+            (setq killed-count (1+ killed-count))))))
+    (when (> killed-count 0)
+      (message "Auto-killed %d idle buffer%s" killed-count (if (= killed-count 1) "" "s")))))
+
+;; Run cleanup every 2 minutes
+(run-with-timer 120 120 #'my/kill-idle-buffers)
+
+;; Recentf - remember recently opened files
+(use-package! recentf
+  :config
+  (setq recentf-max-saved-items 200)
+  (setq recentf-max-menu-items 50)
+  (run-at-time nil (* 5 60) 'recentf-save-list)) ; Save every 5 minutes
+
+;; Load PATH from shell
+(use-package! exec-path-from-shell
+  :init
+  (setq exec-path-from-shell-variables '("PATH" "GOPATH" "GOROOT"))
+  (when (memq window-system '(mac ns x))
+    (exec-path-from-shell-initialize))
+  ;; Also initialize in terminal
+  (unless (memq window-system '(mac ns x))
     (exec-path-from-shell-initialize)))
 
-(defun my/project-maybe-deactivate-venv ()
-  "Deactivate Python venv when entering a non-Python project."
-  (unless (or (locate-dominating-file default-directory "Pipfile")
-              (locate-dominating-file default-directory "pyproject.toml")
-              (locate-dominating-file default-directory "requirements.txt")
-              (locate-dominating-file default-directory ".venv"))
-    (when (and (boundp 'pyvenv-virtual-env) pyvenv-virtual-env)
-      (pyvenv-deactivate))))
-(add-hook 'projectile-after-switch-project-hook #'my/project-maybe-deactivate-venv)
+;; Ensure npm global bin is in PATH
+(add-to-list 'exec-path (expand-file-name "~/.npm-global/bin"))
 
+;; Ensure Go tools are in PATH
+(add-to-list 'exec-path (expand-file-name "~/go/bin"))
 
-;; Auto-switch Poetry venvs as you switch Python buffers/projects
-(use-package! poetry
-  :after python
+(use-package! pyvenv
   :config
-  (add-hook 'python-mode-hook (lambda () (poetry-tracking-mode 1))))
+  (pyvenv-mode 1)
+  (pyvenv-tracking-mode 1)
 
-;; When the venv changes, gently restart Pyright so it picks it up
-(with-eval-after-load 'lsp-pyright
-  (dolist (fn '(poetry-venv-workon poetry-venv-activate))
-    (advice-add fn :after (lambda (&rest _)
-                            (when (bound-and-true-p lsp-mode)
-                              (lsp-restart-workspace))))))
+  ;; Auto-activate .venv
+  (add-hook 'python-mode-hook
+            (lambda ()
+              (let ((venv-dir (locate-dominating-file default-directory ".venv")))
+                (when venv-dir
+                  (pyvenv-activate (expand-file-name ".venv" venv-dir)))))))
 
+(setq lsp-pyright-python-executable-cmd "python")
+(setq python-shell-interpreter "python")
 
-;; Tell gopls to build with -tags=integration
+;; -------------------------------
+;; Pyright auto-import support
+;; -------------------------------
+(setq lsp-disabled-clients '(pylsp))   ;; disable pylsp
+
+(add-hook 'python-mode-hook #'lsp!)     ;; force start LSP with pyright
+
+(after! lsp-pyright
+  ;; Enable auto-import suggestions in completion popups
+  (setq lsp-pyright-auto-import-completions t)
+
+  ;; Use library code for better type information
+  (setq lsp-pyright-use-library-code-for-types t))
+
+;; Optional: auto-organize imports when saving
+(add-hook 'python-mode-hook
+          (lambda ()
+            (add-hook 'before-save-hook #'lsp-organize-imports nil t)))
+
+;; -------------------------------
+;; LSP Configuration (consolidated)
+;; -------------------------------
 (after! lsp-mode
+  ;; Session Management
+  (setq lsp-session-file nil)  ; Don't persist workspace folders
+  (setq lsp-enable-file-watchers t
+        lsp-file-watch-threshold 500)
+  (setq lsp-auto-guess-root t)
+  (setq lsp-keep-workspace-alive nil)  ; Kill workspace when last buffer closes
+
+  ;; Go configuration
   (setq lsp-go-build-flags ["-tags=integration"])
-  ;; If the above var isn’t available in your lsp-mode, force it via gopls settings:
   (lsp-register-custom-settings
-   '(("gopls.buildFlags" ["-tags=integration"]))))
+   '(("gopls.buildFlags" ["-tags=integration"])))
 
-
-
-
-;; Ensure .tsx uses correct mode
-(add-to-list 'auto-mode-alist '("\\.tsx\\'" . typescript-ts-mode))
-
-;; Use LSP for TypeScript & React
-(after! lsp-mode
+  ;; TypeScript & React configuration (enhanced for full-stack)
   (setq lsp-enable-snippet t
         lsp-enable-indentation nil       ; disable LSP formatting, use Prettier/ESLint
         lsp-eslint-server-command '("vscode-eslint-language-server" "--stdio")
-        lsp-typescript-npm-ls-path nil)) ; let lsp find tsserver automatically
+        lsp-typescript-npm-ls-path nil)  ; let lsp find tsserver automatically
+
+  ;; Enhanced TypeScript/JavaScript LSP settings
+  (lsp-register-custom-settings
+   '(("typescript.suggest.autoImports" t t)
+     ("typescript.updateImportsOnFileMove.enabled" "always" t)
+     ("typescript.preferences.importModuleSpecifier" "relative" t)
+     ("typescript.preferences.quoteStyle" "single" t)
+     ("javascript.suggest.autoImports" t t)
+     ("javascript.updateImportsOnFileMove.enabled" "always" t))))
+
+
+;; -------------------------------
+;; DAP (Debug Adapter Protocol)
+;; -------------------------------
+(use-package! dap-mode
+  :config
+  ;; Enable debug logging
+  (setq dap-print-io t)
+  (setq dap-auto-configure-mode t)
+
+  ;; Enable UI features
+  (setq dap-auto-configure-features
+        '(sessions locals breakpoints expressions repl controls tooltip))
+
+  ;; Load language-specific adapters
+  (require 'dap-python)
+  (require 'dap-dlv-go)
+  (require 'dap-js)  ; Node.js/TypeScript debugging (modern vscode-js-debug)
+
+  ;; Python configuration
+  (setq dap-python-debugger 'debugpy)
+  (setq dap-python-executable "python3")
+
+  ;; FIX: Only install js-debug adapter if not already present
+  ;; Previously ran dap-js-setup unconditionally every startup, which
+  ;; can cause race conditions and adapter corruption.
+  (unless (and (boundp 'dap-js-path)
+               (file-exists-p (expand-file-name "src/dapDebugServer.js" dap-js-path)))
+    (dap-js-setup))
+
+  ;; Show locals when stopped
+  (add-hook 'dap-stopped-hook
+            (lambda (arg) (call-interactively #'dap-ui-locals)))
+
+  ;; Python debug template
+  (dap-register-debug-template "Python :: Run Current File"
+    (list :type "python"
+          :args ""
+          :cwd nil
+          :program nil
+          :request "launch"
+          :name "Python :: Run Current File"))
+
+  ;; Go debug template
+  (dap-register-debug-template "Go :: Run Current File"
+    (list :type "go"
+          :request "launch"
+          :name "Go :: Run Current File"
+          :mode "debug"
+          :program nil
+          :args nil))
+
+  ;; ---------------------------------------------------------------
+  ;; Node.js / TypeScript debug templates
+  ;; FIX: corrected attach template:
+  ;;   - added :address "localhost" (required by pwa-node attach)
+  ;;   - added :restart t (prevents ECONNRESET on brief disconnects)
+  ;;   - fixed :resolveSourceMapLocations to use workspaceFolder glob
+  ;;     instead of individual file extension patterns, which is what
+  ;;     vscode-js-debug actually expects
+  ;; ---------------------------------------------------------------
+
+  (dap-register-debug-template "Node :: Attach (JS/TS)"
+    (list :type "pwa-node"
+          :request "attach"
+          :name "Node :: Attach (JS/TS)"
+          :address "localhost"
+          :port 9229
+          :restart t
+          :sourceMaps t
+          :skipFiles ["<node_internals>/**" "**/node_modules/**"]
+          :resolveSourceMapLocations ["${workspaceFolder}/**" "!**/node_modules/**"]))
+
+  ;; Launch template using ts-node
+  ;; FIX: added :address and corrected :resolveSourceMapLocations
+  (dap-register-debug-template "Node :: Launch TS File (ts-node)"
+    (list :type "pwa-node"
+          :request "launch"
+          :name "Node :: Launch TS File (ts-node)"
+          :program nil
+          :cwd nil
+          :address "localhost"
+          :runtimeExecutable "node"
+          :runtimeArgs ["--require" "ts-node/register" "--enable-source-maps"]
+          :skipFiles ["<node_internals>/**" "**/node_modules/**"]
+          :sourceMaps t
+          :resolveSourceMapLocations ["${workspaceFolder}/**" "!**/node_modules/**"])))
+
+;; -------------------------------
+;; Enhanced IBuffer for Buffer Management
+;; -------------------------------
+(after! ibuffer
+  ;; Group buffers by project
+  (setq ibuffer-saved-filter-groups
+        '(("default"
+           ("Org" (mode . org-mode))
+           ("Programming" (or
+                          (mode . python-mode)
+                          (mode . go-mode)
+                          (mode . typescript-mode)
+                          (mode . typescript-tsx-mode)
+                          (mode . rust-mode)
+                          (mode . c-mode)
+                          (mode . c++-mode)))
+           ("Dired" (mode . dired-mode))
+           ("Magit" (name . "^magit"))
+           ("Emacs" (or
+                    (name . "^\\*scratch\\*$")
+                    (name . "^\\*Messages\\*$")
+                    (name . "^\\*dashboard\\*$")))
+           ("Help" (or
+                   (name . "^\\*Help\\*$")
+                   (name . "^\\*info\\*$")
+                   (name . "^\\*apropos\\*$")))
+           ("Temp" (name . "^\\*.*\\*$")))))
+
+  ;; Use human-readable Size column instead of original one
+  (define-ibuffer-column size-h
+    (:name "Size" :inline t)
+    (file-size-human-readable (buffer-size)))
+
+  ;; Modify the default ibuffer-formats
+  (setq ibuffer-formats
+        '((mark modified read-only locked " "
+                (name 30 30 :left :elide)
+                " "
+                (size-h 9 -1 :right)
+                " "
+                (mode 16 16 :left :elide)
+                " "
+                filename-and-process)))
+
+  ;; Auto-update ibuffer
+  (add-hook 'ibuffer-mode-hook
+            (lambda ()
+              (ibuffer-auto-mode 1)
+              (ibuffer-switch-to-saved-filter-groups "default"))))
+
+;; Keybindings for quick buffer cleanup
+(map! :leader
+      (:prefix ("b" . "buffer")
+       :desc "Kill other buffers" "O" #'doom/kill-other-buffers
+       :desc "Kill buried buffers" "C" #'doom/kill-buried-buffers
+       :desc "Kill project buffers" "P" #'doom/kill-project-buffers
+       :desc "IBuffer" "I" #'ibuffer))
+
+;; Auto-load dap-mode for programming modes
+(add-hook 'go-mode-hook #'dap-mode)
+(add-hook 'python-mode-hook #'dap-mode)
+(add-hook 'typescript-mode-hook #'dap-mode)
+(add-hook 'typescript-tsx-mode-hook #'dap-mode)
+(add-hook 'js-mode-hook #'dap-mode)
+
+;; DAP keybindings for Python and Go
+(map! :after dap-mode
+      :map dap-mode-map
+      :localleader
+      (:prefix ("d" . "debug")
+       :desc "Start debugging" "d" #'dap-debug
+       :desc "Toggle breakpoint" "b" #'dap-breakpoint-toggle
+       :desc "Conditional breakpoint" "c" #'dap-breakpoint-condition
+       :desc "Delete breakpoint" "x" #'dap-breakpoint-delete
+       :desc "List breakpoints" "l" #'dap-breakpoint-list
+       :desc "Continue" "r" #'dap-continue
+       :desc "Next" "n" #'dap-next
+       :desc "Step in" "i" #'dap-step-in
+       :desc "Step out" "o" #'dap-step-out
+       :desc "Quit" "q" #'dap-disconnect
+       :desc "Eval at point" "e" #'dap-eval-thing-at-point
+       :desc "View locals" "v" #'dap-ui-locals))
+
+
+(use-package! repeat
+  :custom
+  (repeat-mode +1))
+
+;; Left and right side windows occupy full frame height
+(use-package! emacs
+  :custom
+  (window-sides-vertical t))
+
+
+;; -------------------------------
+;; TypeScript & React Configuration (Full-Stack)
+;; -------------------------------
 
 ;; Prettier integration
 (use-package! prettier
@@ -140,25 +414,68 @@
 (setq-hook! 'typescript-mode-hook +format-with 'prettier)
 (setq-hook! 'typescript-tsx-mode-hook +format-with 'prettier)
 
-;; If you prefer ESLint formatting instead of Prettier:
-;; (setq-hook! 'typescript-mode-hook +format-with 'eslint_d)
-;; (setq-hook! 'typescript-tsx-mode-hook +format-with 'eslint_d)
+;; Auto-organize imports on save (like Python)
+(add-hook 'typescript-mode-hook
+          (lambda ()
+            (add-hook 'before-save-hook #'lsp-organize-imports nil t)))
+(add-hook 'typescript-tsx-mode-hook
+          (lambda ()
+            (add-hook 'before-save-hook #'lsp-organize-imports nil t)))
 
-;; Company (completion) tweaks
-(after! company
-  (setq company-minimum-prefix-length 1
-        company-idle-delay 0.0)) ; instant completions
+;; Enable ESLint for linting
+(after! flycheck
+  (setq-default flycheck-disabled-checkers
+                (append flycheck-disabled-checkers
+                        '(javascript-jshint)))
+  (flycheck-add-mode 'javascript-eslint 'typescript-mode)
+  (flycheck-add-mode 'javascript-eslint 'typescript-tsx-mode))
 
-;; Snippets for React (expand with `yas-expand`)
+;; Company settings are in modules/company.el
+
+;; -------------------------------
+;; React & Next.js Snippets (TypeScript)
+;; -------------------------------
 (use-package! yasnippet
   :config
   (yas-global-mode 1))
 
-;; Example: add a "rfc" snippet for React functional components
+;; Enhanced React/Next.js snippets for TypeScript
 (yas-define-snippets 'typescript-tsx-mode
                      '(("rfc"
                         "import React from 'react';\n\nexport default function ${1:Component}() {\n  return (\n    <div>$0</div>\n  );\n}"
-                        "React functional component")))
+                        "React functional component")
+
+                       ("rfce"
+                        "import React from 'react';\n\nexport default function ${1:Component}() {\n  return (\n    <>\n      $0\n    </>\n  );\n}"
+                        "React functional component with fragment")
+
+                       ("rfcp"
+                        "import React from 'react';\n\ninterface ${1:Component}Props {\n  $2\n}\n\nexport default function ${1:Component}({ $3 }: ${1:Component}Props) {\n  return (\n    <div>$0</div>\n  );\n}"
+                        "React functional component with props interface")
+
+                       ("useState"
+                        "const [${1:state}, set${1:$(capitalize yas-text)}] = useState$2($3);"
+                        "useState hook")
+
+                       ("useEffect"
+                        "useEffect(() => {\n  $0\n}, [$1]);"
+                        "useEffect hook")
+
+                       ("nextpage"
+                        "export default function ${1:Page}() {\n  return (\n    <div>\n      $0\n    </div>\n  );\n}"
+                        "Next.js page component")
+
+                       ("nextapi"
+                        "import { NextRequest, NextResponse } from 'next/server';\n\nexport async function ${1:GET}(request: NextRequest) {\n  $0\n  return NextResponse.json({ data: null });\n}"
+                        "Next.js API route")
+
+                       ("nextlayout"
+                        "import type { Metadata } from 'next';\n\nexport const metadata: Metadata = {\n  title: '${1:Title}',\n  description: '${2:Description}',\n};\n\nexport default function ${3:Layout}({\n  children,\n}: {\n  children: React.ReactNode;\n}) {\n  return (\n    <>\n      {children}\n    </>\n  );\n}"
+                        "Next.js layout component")
+
+                       ("hono"
+                        "import { Hono } from 'hono';\n\nconst app = new Hono();\n\napp.get('/${1:path}', (c) => {\n  return c.json({ $0 });\n});\n\nexport default app;"
+                        "Hono API route")))
 
 ;; Optional: better syntax highlighting
 (after! tree-sitter
@@ -166,10 +483,6 @@
   (add-hook 'typescript-tsx-mode-hook #'tree-sitter-mode)
   (add-hook 'typescript-mode-hook #'tree-sitter-hl-mode)
   (add-hook 'typescript-tsx-mode-hook #'tree-sitter-hl-mode))
-
-
-
-
 
 
 ;; Ensure LSP uses the correct interpreter after venv is activated

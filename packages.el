@@ -49,12 +49,28 @@
 ;; (unpin! t)
 
 
+;; Utilities
 (package! tldr)
-(package! flycheck-inline)
-(package! poetry)
-(package! format-all)
+(package! exec-path-from-shell)
+
+;; Completion & Navigation
+(package! consult-dir)
+
+;; Org Mode
 (package! org-roam)
-(package! org-download)
-(package! websocket)
 (package! org-roam-ui)
-(package! prettier)
+(package! websocket)  ; Required by org-roam-ui
+;; (package! org-download)  ; TODO: Not configured yet
+
+;; Formatting
+(package! prettier)  ; TypeScript/React/JSON formatting
+
+;; Unused packages (disabled for now)
+;; (package! flycheck-inline)  ; Not configured
+;; (package! format-all)  ; Using prettier instead
+
+;; Disable dape in favor of dap-mode
+(package! dape :disable t)
+
+;; Explicitly enable dap-mode
+(package! dap-mode)

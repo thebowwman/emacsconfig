@@ -42,13 +42,3 @@
   (map! :leader
         (:prefix "r"
          :desc "Repeat completion" "v" #'vertico-repeat)))
-
-;; TODO Not currently working
-;; Enhanced sorting and filtering with prescient
-;; (use-package! vertico-prescient
-;;   :after vertico
-;;   :config
-;;   (vertico-prescient-mode 1)
-;;   (prescient-persist-mode 1)
-;;   (setq prescient-sort-length-enable nil
-;;         prescient-filter-method '(literal regexp initialism fuzzy)))

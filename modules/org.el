@@ -7,15 +7,11 @@
 ;; change `org-directory'. It must be set before org loads!
 (setq org-directory "~/org")
 
-(use-package org
-  :ensure nil
-  :custom (org-modules '(org-habit)))
-
 (after! org
+  (setq org-modules '(org-habit))
   (map! :map org-mode-map
         :n "<M-left>" #'org-do-promote
-        :n "<M-right>" #'org-do-demote)
-  )
+        :n "<M-right>" #'org-do-demote))
 
 ;; Auto-clock in when state changes to STRT
 (defun my/org-clock-in-if-starting ()
@@ -114,16 +110,7 @@
   ;; Set the dynamic file path for today’s capture
   (setq my/daily-file (capture-report-date-file "~/org/daily/"))
 
-  ;; Logseq-style daily note capture: one file per day with a title, add a TODO
-  (setq org-capture-templates
-        '(("d" "Daily TODO" entry
-           (file my/daily-file)  ;; Use the dynamically evaluated file path
-           "* TODO %?\n#+title: %<%B %e, %Y>\n"
-           :empty-lines 1))))
-;;=========================================================================================
-;;
-;;
-;; Capture templates
+  ;; Capture templates
 (setq org-capture-templates
       '(("t" "Todo" entry
          (file+headline "~/org/inbox.org" "Inbox")
@@ -163,14 +150,19 @@
 :LOCATION: %^{Address}
 :LAST_CONTACTED: %U
 :END:
-\\ *** Communications
-\\ *** Notes
+*** Communications
+*** Notes
 %?")
 
         ("n" "Note" entry
          (file+headline "~/org/notes.org" "Inbox")
          "* [%<%Y-%m-%d %a>] %^{Title}\n:PROPERTIES:\n:CREATED: %U\n:CAPTURED: %a\n:END:\n%?"
-         :prepend t)))
+         :prepend t)
+
+        ("D" "Daily TODO" entry
+         (file my/daily-file)
+         "* TODO %?\n#+title: %<%B %e, %Y>\n"
+         :empty-lines 1))))
 
 (defun org-capture-bookmark-tags ()
   "Get tags from existing bookmarks and prompt for tags with completion."
@@ -228,4 +220,4 @@
 ;;               (my/archive-done-task))))
 
 ;; Optional key binding if you ever need to archive manually
-(define-key org-mode-map (kbd "C-c C-x C-a") 'my/archive-done-task)
+;; (define-key org-mode-map (kbd "C-c C-x C-a") 'my/archive-done-task)

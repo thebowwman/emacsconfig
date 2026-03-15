@@ -54,8 +54,8 @@
         org-roam-ui-open-on-start t))
 
 ;; org-download customizations
-(require 'org-download)
-(setq-default org-download-screenshot-method "scrot -s %s")
+(after! org-download
+  (setq-default org-download-screenshot-method "scrot -s %s"))
 
 ;; Debugging function for SQLite issues
 (defun debug-org-roam-db ()
