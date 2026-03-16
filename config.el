@@ -156,12 +156,25 @@
   (pyvenv-mode 1)
   (pyvenv-tracking-mode 1)
 
-  ;; Auto-activate .venv
-  (add-hook 'python-mode-hook
-            (lambda ()
-              (let ((venv-dir (locate-dominating-file default-directory ".venv")))
-                (when venv-dir
-                  (pyvenv-activate (expand-file-name ".venv" venv-dir)))))))
+  ;; Helper function to find and activate .venv
+  (defun my/auto-activate-venv ()
+    "Auto-activate .venv if found in project root or parent directories."
+    (let ((venv-dir (locate-dominating-file default-directory ".venv")))
+      (when venv-dir
+        (let ((venv-path (expand-file-name ".venv" venv-dir)))
+          (unless (and (boundp 'pyvenv-virtual-env)
+                       (string= pyvenv-virtual-env venv-path))
+            (pyvenv-activate venv-path)
+            (message "Activated venv: %s" venv-path))))))
+
+  ;; Auto-activate .venv when opening Python files
+  (add-hook 'python-mode-hook #'my/auto-activate-venv)
+
+  ;; Auto-activate .venv when switching projects (Projectile)
+  (add-hook 'projectile-after-switch-project-hook #'my/auto-activate-venv)
+
+  ;; Auto-activate .venv on Emacs startup if in a Python project
+  (add-hook 'emacs-startup-hook #'my/auto-activate-venv))
 
 (setq lsp-pyright-python-executable-cmd "python")
 (setq python-shell-interpreter "python")
@@ -495,3 +508,25 @@
 (load! "modules/org.el")
 (load! "modules/org-roam.el")
 (load! "modules/evil-mode.el")
+
+;; -------------------------------
+;; Native Compilation Settings
+;; -------------------------------
+(when (and (fboundp 'native-comp-available-p)
+           (native-comp-available-p))
+  ;; Set the directory for native compilation cache
+  (setq native-comp-eln-load-path
+        (list (expand-file-name "eln-cache/" user-emacs-directory)))
+
+  ;; Silence compiler warnings
+  (setq native-comp-async-report-warnings-errors nil)
+
+  ;; Number of async compilation jobs
+  (setq native-comp-async-jobs-number 4)
+
+  ;; Optimization level (2 = max optimization)
+  (setq native-comp-speed 2))
+
+;; Tree-sitter settings
+(setq treesit-extra-load-path
+      (list (expand-file-name "tree-sitter" user-emacs-directory)))
