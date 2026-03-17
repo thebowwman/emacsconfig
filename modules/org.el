@@ -7,12 +7,6 @@
 ;; change `org-directory'. It must be set before org loads!
 (setq org-directory "~/org")
 
-(after! org
-  (setq org-modules '(org-habit))
-  (map! :map org-mode-map
-        :n "<M-left>" #'org-do-promote
-        :n "<M-right>" #'org-do-demote))
-
 ;; Auto-clock in when state changes to STRT
 (defun my/org-clock-in-if-starting ()
   "Clock in when the task state changes to STRT"
@@ -51,53 +45,112 @@
 
 ;; Org Agenda
 ;; Set days viewed to 3, set start day to today, create seperator, and Dashboard view
-(setq org-agenda-remove-tags t)
-(setq org-agenda-block-separator 32)
-(setq org-agenda-custom-commands
-      '(("d" "Dashboard"
-         (
-          (tags "PRIORITY=\"A\""
+
+;; Define file lists for different contexts (must be defined outside after! block)
+(defvar my/org-work-files
+  '("~/org/work-inbox.org"
+    "~/org/work-projects.org"
+    "~/org/work-calendar.org"
+    "~/org/work-notes.org"
+    "~/org/work-daily/")
+  "List of work-related org files.")
+
+(defvar my/org-personal-files
+  '("~/org/inbox.org"
+    "~/org/projects.org"
+    "~/org/calendar.org"
+    "~/org/ideas.org"
+    "~/org/notes.org"
+    "~/org/daily/")
+  "List of personal org files.")
+
+(after! org
+  ;; Enable org-habit module
+  (setq org-modules '(org-habit))
+
+  ;; Keybindings for org-mode
+  (map! :map org-mode-map
+        :n "<M-left>" #'org-do-promote
+        :n "<M-right>" #'org-do-demote)
+
+  ;; Agenda settings
+  (setq org-agenda-remove-tags t)
+  (setq org-agenda-block-separator 32)
+
+  (setq org-agenda-custom-commands
+      '(("d" "Dashboard (All)"
+         ((tags "PRIORITY=\"A\""
                 ((org-agenda-skip-function '(org-agenda-skip-entry-if 'todo 'done))
                  (org-agenda-overriding-header "\n HIGHEST PRIORITY")
-                 (org-agenda-prefix-format "   %i %?-2 t%s")
-                 )
-                )
+                 (org-agenda-prefix-format "   %i %?-2 t%s")))
           (agenda ""
-                  (
+                  ((org-agenda-start-day "+0d")
+                   (org-agenda-span 1)
+                   (org-agenda-time)
+                   (org-agenda-remove-tags t)
+                   (org-agenda-todo-keyword-format "")
+                   (org-agenda-scheduled-leaders '("" ""))
+                   (org-agenda-current-time-string "\u140a\u2508\u2508\u2508\u2508\u2508\u2508\u2508\u2508\u2508 NOW")
+                   (org-agenda-overriding-header "\n TODAY'S SCHEDULE")
+                   (org-agenda-prefix-format "   %i %?-2 t%s")))
+          (tags-todo  "-STYLE=\"habit\""
+                      ((org-agenda-overriding-header "\n ALL TODO")
+                       (org-agenda-sorting-strategy '(priority-down))
+                       (org-agenda-remove-tags t)
+                       (org-agenda-prefix-format "   %i %?-2 t%s")))))
+
+        ("w" "Work Dashboard"
+         ((tags "PRIORITY=\"A\""
+                ((org-agenda-skip-function '(org-agenda-skip-entry-if 'todo 'done))
+                 (org-agenda-files my/org-work-files)
+                 (org-agenda-overriding-header "\n \U0001f4bc WORK - HIGHEST PRIORITY")
+                 (org-agenda-prefix-format "   %i %?-2 t%s")))
+          (agenda ""
+                  ((org-agenda-files my/org-work-files)
                    (org-agenda-start-day "+0d")
                    (org-agenda-span 1)
                    (org-agenda-time)
                    (org-agenda-remove-tags t)
                    (org-agenda-todo-keyword-format "")
                    (org-agenda-scheduled-leaders '("" ""))
-                   (org-agenda-current-time-string "ᐊ┈┈┈┈┈┈┈┈┈ NOW")
-                   (org-agenda-overriding-header "\n TODAY'S SCHEDULE")
-                   (org-agenda-prefix-format "   %i %?-2 t%s")
-                   )
-                  )
+                   (org-agenda-current-time-string "\u140a\u2508\u2508\u2508\u2508\u2508\u2508\u2508\u2508\u2508 NOW")
+                   (org-agenda-overriding-header "\n \U0001f4bc WORK TODAY'S SCHEDULE")
+                   (org-agenda-prefix-format "   %i %?-2 t%s")))
           (tags-todo  "-STYLE=\"habit\""
-                      (
-                       (org-agenda-overriding-header "\n ALL TODO")
+                      ((org-agenda-files my/org-work-files)
+                       (org-agenda-overriding-header "\n \U0001f4bc WORK ALL TODO")
                        (org-agenda-sorting-strategy '(priority-down))
                        (org-agenda-remove-tags t)
-                       (org-agenda-prefix-format "   %i %?-2 t%s")
-                       )
-                      )))))
+                       (org-agenda-prefix-format "   %i %?-2 t%s")))))
 
-;; Remove Scheduled tag
-(setq org-agenda-scheduled-leaders '("" ""))
-;; Remove holidays from agenda
-(setq org-agenda-include-diary nil)
+        ("p" "Personal Dashboard"
+         ((tags "PRIORITY=\"A\""
+                ((org-agenda-skip-function '(org-agenda-skip-entry-if 'todo 'done))
+                 (org-agenda-files my/org-personal-files)
+                 (org-agenda-overriding-header "\n \U0001f3e0 PERSONAL - HIGHEST PRIORITY")
+                 (org-agenda-prefix-format "   %i %?-2 t%s")))
+          (agenda ""
+                  ((org-agenda-files my/org-personal-files)
+                   (org-agenda-start-day "+0d")
+                   (org-agenda-span 1)
+                   (org-agenda-time)
+                   (org-agenda-remove-tags t)
+                   (org-agenda-todo-keyword-format "")
+                   (org-agenda-scheduled-leaders '("" ""))
+                   (org-agenda-current-time-string "\u140a\u2508\u2508\u2508\u2508\u2508\u2508\u2508\u2508\u2508 NOW")
+                   (org-agenda-overriding-header "\n \U0001f3e0 PERSONAL TODAY'S SCHEDULE")
+                   (org-agenda-prefix-format "   %i %?-2 t%s")))
+          (tags-todo  "-STYLE=\"habit\""
+                      ((org-agenda-files my/org-personal-files)
+                       (org-agenda-overriding-header "\n \U0001f3e0 PERSONAL ALL TODO")
+                       (org-agenda-sorting-strategy '(priority-down))
+                       (org-agenda-remove-tags t)
+                       (org-agenda-prefix-format "   %i %?-2 t%s")))))))
 
-
-;; =====================================================================================
-(defun my/org-capture-daily-file ()
-  "Generate the daily capture file path in ~/org/daily/."
-  (expand-file-name (format "~/org/daily/%s.org"
-                            (format-time-string "%Y-%m-%d"))))
-(after! org
-  ;; Make sure the daily dir is on the agenda
-  (add-to-list 'org-agenda-files "~/org/daily/")
+  ;; Remove Scheduled tag
+  (setq org-agenda-scheduled-leaders '("" ""))
+  ;; Remove holidays from agenda
+  (setq org-agenda-include-diary nil)
 
   ;; Function to generate the file path dynamically
   (defun capture-report-date-file (path)
@@ -107,11 +160,46 @@
   (set-locale-environment "en_US.UTF-8")
 
 
-  ;; Set the dynamic file path for today’s capture
+  ;; Set the dynamic file paths for today's capture
   (setq my/daily-file (capture-report-date-file "~/org/daily/"))
+  (setq my/work-daily-file (capture-report-date-file "~/org/work-daily/"))
+
+  ;; Helper function for bookmark tags
+  (defun org-capture-bookmark-tags ()
+    "Get tags from existing bookmarks and prompt for tags with completion."
+    (save-window-excursion
+      (let ((tags-list '()))
+        ;; Collect existing tags
+        (with-current-buffer (find-file-noselect "~/org/bookmarks.org")
+          (save-excursion
+            (goto-char (point-min))
+            (while (re-search-forward "^:TAGS:\\s-*\\(.+\\)$" nil t)
+              (let ((tag-string (match-string 1)))
+                (dolist (tag (split-string tag-string "[,;]" t "[[:space:]]"))
+                  (push (string-trim tag) tags-list))))))
+        ;; Remove duplicates and sort
+        (setq tags-list (sort (delete-dups tags-list) 'string<))
+        ;; Prompt user with completion
+        (let ((selected-tags (completing-read-multiple "Tags (comma-separated): " tags-list)))
+          ;; Return as a comma-separated string
+          (mapconcat 'identity selected-tags ", ")))))
+
+  ;; Helper function to select and link a contact
+  (defun org-capture-ref-link (file)
+    "Create a link to a contact in contacts.org"
+    (let* ((headlines (org-map-entries
+                       (lambda ()
+                         (cons (org-get-heading t t t t)
+                               (org-id-get-create)))
+                       t
+                       (list file)))
+           (contact (completing-read "Contact: "
+                                     (mapcar (function car) headlines)))
+           (id (cdr (assoc contact headlines))))
+      (format "[[id:%s][%s]]" id contact)))
 
   ;; Capture templates
-(setq org-capture-templates
+  (setq org-capture-templates
       '(("t" "Todo" entry
          (file+headline "~/org/inbox.org" "Inbox")
          "* TODO %^{Task}\n:PROPERTIES:\n:CREATED: %U\n:CAPTURED: %a\n:END:\n%?")
@@ -162,40 +250,40 @@
         ("D" "Daily TODO" entry
          (file my/daily-file)
          "* TODO %?\n#+title: %<%B %e, %Y>\n"
-         :empty-lines 1))))
+         :empty-lines 1)
 
-(defun org-capture-bookmark-tags ()
-  "Get tags from existing bookmarks and prompt for tags with completion."
-  (save-window-excursion
-    (let ((tags-list '()))
-      ;; Collect existing tags
-      (with-current-buffer (find-file-noselect "~/org/bookmarks.org")
-        (save-excursion
-          (goto-char (point-min))
-          (while (re-search-forward "^:TAGS:\\s-*\\(.+\\)$" nil t)
-            (let ((tag-string (match-string 1)))
-              (dolist (tag (split-string tag-string "[,;]" t "[[:space:]]"))
-                (push (string-trim tag) tags-list))))))
-      ;; Remove duplicates and sort
-      (setq tags-list (sort (delete-dups tags-list) 'string<))
-      ;; Prompt user with completion
-      (let ((selected-tags (completing-read-multiple "Tags (comma-separated): " tags-list)))
-        ;; Return as a comma-separated string
-        (mapconcat 'identity selected-tags ", ")))))
+        ;; ========== WORK CAPTURE TEMPLATES ==========
+        ("w" "Work")
+        ("wt" "Work: Todo" entry
+         (file+headline "~/org/work-inbox.org" "Inbox")
+         "* TODO %^{Task}\n:PROPERTIES:\n:CREATED: %U\n:CAPTURED: %a\n:END:\n%?")
 
-;; Helper function to select and link a contact
-(defun org-capture-ref-link (file)
-  "Create a link to a contact in contacts.org"
-  (let* ((headlines (org-map-entries
-                     (lambda ()
-                       (cons (org-get-heading t t t t)
-                             (org-id-get-create)))
-                     t
-                     (list file)))
-         (contact (completing-read "Contact: "
-                                   (mapcar #'car headlines)))
-         (id (cdr (assoc contact headlines))))
-    (format "[[id:%s][%s]]" id contact)))
+        ("we" "Work: Event" entry
+         (file+headline "~/org/work-calendar.org" "Events")
+         "* %^{Event}\n%^{SCHEDULED}T\n:PROPERTIES:\n:CREATED: %U\n:CAPTURED: %a\n:END:\n%?")
+
+        ("wd" "Work: Deadline" entry
+         (file+headline "~/org/work-calendar.org" "Deadlines")
+         "* TODO %^{Task}\nDEADLINE: %^{Deadline}T\n:PROPERTIES:\n:CREATED: %U\n:CAPTURED: %a\n:END:\n%?")
+
+        ("wp" "Work: Project" entry
+         (file+headline "~/org/work-projects.org" "Projects")
+         "* PROJ %^{Project name}\n:PROPERTIES:\n:CREATED: %U\n:CAPTURED: %a\n:END:\n** TODO %?")
+
+        ("wn" "Work: Note" entry
+         (file+headline "~/org/work-notes.org" "Inbox")
+         "* [%<%Y-%m-%d %a>] %^{Title}\n:PROPERTIES:\n:CREATED: %U\n:CAPTURED: %a\n:END:\n%?"
+         :prepend t)
+
+        ("wD" "Work: Daily TODO" entry
+         (file my/work-daily-file)
+         "* TODO %?\n#+title: %<%B %e, %Y - Work>\n"
+         :empty-lines 1)))
+  ;; Make sure the daily dirs are on the agenda
+  (setq org-agenda-files
+        (append my/org-personal-files my/org-work-files))
+
+) ;; End of (after! org ...)
 
 ;; Set archive location to done.org under current date
 ;; (defun my/archive-done-task ()

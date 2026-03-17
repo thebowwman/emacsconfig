@@ -115,7 +115,8 @@
     (dolist (buffer (buffer-list))
       (when (my/should-auto-kill-buffer-p buffer)
         (let* ((last-access (or (buffer-local-value 'buffer-display-time buffer)
-                               (visited-file-modtime buffer)))
+                               (with-current-buffer buffer
+                                 (visited-file-modtime))))
                (idle-time (if (time-less-p last-access current-time)
                               (time-to-seconds (time-subtract current-time last-access))
                             0)))
