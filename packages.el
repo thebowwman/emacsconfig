@@ -74,3 +74,9 @@
 
 ;; Explicitly enable dap-mode
 (package! dap-mode)
+
+;; Agent Shell - AI assistant in Emacs shell
+(package! shell-maker)  ; Available on MELPA
+(package! acp)          ; Available on MELPA
+(package! agent-shell
+  :recipe (:host github :repo "xenodium/agent-shell"))

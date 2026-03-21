@@ -531,3 +531,83 @@
 ;; Tree-sitter settings
 (setq treesit-extra-load-path
       (list (expand-file-name "tree-sitter" user-emacs-directory)))
+
+;; -------------------------------
+;; Proxy Configuration for VPN
+;; -------------------------------
+(defun my/setup-proxy-from-env ()
+  "Configure Emacs to use proxy from environment variables."
+  (let ((http-proxy (or (getenv "http_proxy") (getenv "HTTP_PROXY")))
+        (https-proxy (or (getenv "https_proxy") (getenv "HTTPS_PROXY"))))
+    (if (and http-proxy https-proxy)
+        (progn
+          ;; Parse proxy URL
+          (when (string-match "http://\\([^:]+\\):\\([0-9]+\\)" http-proxy)
+            (let ((proxy-host (match-string 1 http-proxy))
+                  (proxy-port (match-string 2 http-proxy)))
+              (setq url-proxy-services
+                    `(("http" . ,(concat proxy-host ":" proxy-port))
+                      ("https" . ,(concat proxy-host ":" proxy-port))))
+              (message "Emacs proxy configured: %s:%s" proxy-host proxy-port))))
+      ;; No proxy set - disable proxy
+      (setq url-proxy-services nil)
+      (message "Emacs proxy disabled"))))
+
+;; Apply proxy settings on startup
+(my/setup-proxy-from-env)
+
+;; Optional: Command to refresh proxy settings without restarting Emacs
+(defun my/toggle-proxy ()
+  "Refresh proxy settings from environment."
+  (interactive)
+  (my/setup-proxy-from-env))
+
+;; -------------------------------
+;; Agent Shell - AI Assistant
+;; -------------------------------
+
+;; Helper function to read Claude Code settings
+(defun my/load-claude-settings ()
+  "Load Claude Code settings from ~/.claude/settings.json"
+  (let* ((settings-file (expand-file-name "~/.claude/settings.json"))
+         (json-object-type 'hash-table)
+         (json-array-type 'list)
+         (json-key-type 'string))
+    (when (file-exists-p settings-file)
+      (with-temp-buffer
+        (insert-file-contents settings-file)
+        (json-read)))))
+
+;; Load settings and set environment variables
+(let ((settings (my/load-claude-settings)))
+  (when settings
+    (let ((env (gethash "env" settings)))
+      (when env
+        (setenv "ANTHROPIC_AUTH_TOKEN" (gethash "ANTHROPIC_AUTH_TOKEN" env))
+        (setenv "ANTHROPIC_BASE_URL" (gethash "ANTHROPIC_BASE_URL" env))
+        (setenv "ANTHROPIC_DEFAULT_SONNET_MODEL" (gethash "ANTHROPIC_DEFAULT_SONNET_MODEL" env))))))
+
+(use-package! acp
+  :after shell-maker
+  :config
+  ;; Read from environment variables (loaded from Claude Code settings)
+  (setq acp-api-key (getenv "ANTHROPIC_AUTH_TOKEN"))
+  (setq acp-anthropic-api-url (getenv "ANTHROPIC_BASE_URL")))
+
+(use-package! agent-shell
+  :after (shell-maker acp)
+  :commands (agent-shell agent-shell-send-region)
+  :config
+  ;; Use the Claude model from environment or default
+  (setq agent-shell-claude-model
+        (or (getenv "ANTHROPIC_DEFAULT_SONNET_MODEL")
+            "vertex_ai/claude-sonnet-4-5")))
+
+;; Add npm global bin to exec-path so Emacs can find claude-agent-acp
+(add-to-list 'exec-path (expand-file-name "~/.npm-global/bin"))
+
+;; Set up keybindings for agent-shell
+(map! :leader
+      :prefix ("g" . "agent-shell")
+      :desc "Start agent shell" "s" #'agent-shell
+      :desc "Agent shell send region" "r" #'agent-shell-send-region)
