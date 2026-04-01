@@ -66,8 +66,11 @@
 (package! prettier)  ; TypeScript/React/JSON formatting
 
 ;; Unused packages (disabled for now)
-;; (package! flycheck-inline)  ; Not configured
 ;; (package! format-all)  ; Using prettier instead
+
+(package! sideline)
+(package! sideline-flycheck)
+(package! sideline-lsp)
 
 ;; Disable dape in favor of dap-mode
 (package! dape :disable t)

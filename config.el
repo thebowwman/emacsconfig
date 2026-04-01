@@ -77,6 +77,52 @@
 
 
 ;; -------------------------------
+;; Dynamic NVM / Node path detection
+;; -------------------------------
+(defun my/nvm-add-to-path ()
+  "Dynamically find and add the active nvm node version to exec-path and PATH."
+  (let* ((nvm-dir (expand-file-name "~/.nvm/versions/node"))
+         (default-version-file (expand-file-name "~/.nvm/alias/default"))
+         ;; Try reading the default alias first
+         (node-version
+          (when (file-exists-p default-version-file)
+            (string-trim (with-temp-buffer
+                           (insert-file-contents default-version-file)
+                           (buffer-string)))))
+         ;; If no default alias, fall back to highest installed version
+         (node-version
+          (or node-version
+              (when (file-directory-p nvm-dir)
+                (car (last (sort
+                            (directory-files nvm-dir nil "^v[0-9]")
+                            #'string<))))))
+         (node-bin (when node-version
+                     (expand-file-name (concat node-version "/bin") nvm-dir))))
+    (when (and node-bin (file-directory-p node-bin))
+      (add-to-list 'exec-path node-bin)
+      (setenv "PATH" (concat node-bin ":" (getenv "PATH")))
+      (message "Node.js added to PATH from nvm: %s" node-bin))))
+
+;; Run early so LSP and other tools can find node
+(my/nvm-add-to-path)
+
+
+;; -------------------------------
+;; TSX / TypeScript Mode Fix
+;; -------------------------------
+
+;; Force .tsx files to open in tsx-ts-mode (built-in Emacs 29+ tree-sitter mode)
+;; instead of typescript-ts-mode which Doom maps by default
+(setq auto-mode-alist
+      (cons '("\\.tsx\\'" . tsx-ts-mode)
+            (delete '("\\.tsx\\'" . typescript-ts-mode) auto-mode-alist)))
+
+;; Hook LSP into the tree-sitter modes so autocomplete works
+(add-hook 'tsx-ts-mode-hook #'lsp!)
+(add-hook 'typescript-ts-mode-hook #'lsp!)
+
+
+;; -------------------------------
 ;; Buffer Management - Auto-close inactive saved buffers
 ;; -------------------------------
 
@@ -152,10 +198,16 @@
 ;; Ensure Go tools are in PATH
 (add-to-list 'exec-path (expand-file-name "~/go/bin"))
 
+;; Ensure Cargo/Rust tools are in PATH
+(add-to-list 'exec-path (expand-file-name "~/.cargo/bin"))
+(setenv "PATH" (concat (expand-file-name "~/.cargo/bin") ":" (getenv "PATH")))
+
 (use-package! pyvenv
   :config
   (pyvenv-mode 1)
-  (pyvenv-tracking-mode 1)
+  ;; Do NOT enable pyvenv-tracking-mode globally — it bleeds venv display
+  ;; into non-Python buffers (Rust, Go, etc.). Per-hook activation is enough.
+  ;; (pyvenv-tracking-mode 1)
 
   ;; Helper function to find and activate .venv
   (defun my/auto-activate-venv ()
@@ -172,10 +224,12 @@
   (add-hook 'python-mode-hook #'my/auto-activate-venv)
 
   ;; Auto-activate .venv when switching projects (Projectile)
+  ;; Only triggers when actually switching, not on every buffer change
   (add-hook 'projectile-after-switch-project-hook #'my/auto-activate-venv)
 
-  ;; Auto-activate .venv on Emacs startup if in a Python project
-  (add-hook 'emacs-startup-hook #'my/auto-activate-venv))
+  ;; Removed: emacs-startup-hook — caused venv to activate based on launch
+  ;; directory rather than actual Python context, polluting all buffers.
+  )
 
 (setq lsp-pyright-python-executable-cmd "python")
 (setq python-shell-interpreter "python")
@@ -210,6 +264,9 @@
   (setq lsp-auto-guess-root t)
   (setq lsp-keep-workspace-alive nil)  ; Kill workspace when last buffer closes
 
+  ;; Route LSP diagnostics through flycheck so sideline/inline packages see them
+  (setq lsp-diagnostics-provider :flycheck)
+
   ;; Go configuration
   (setq lsp-go-build-flags ["-tags=integration"])
   (lsp-register-custom-settings
@@ -232,35 +289,148 @@
 
 
 ;; -------------------------------
+;; LSP UI — fully committed to sideline + sideline-flycheck stack
+;;
+;; Diagnostics:   LSP → flycheck → sideline-flycheck (catches clippy, eslint,
+;;                pyright — anything flycheck sees, not just LSP sources)
+;; Code actions:  LSP → sideline-lsp (lightbulb hints inline, no lsp-ui needed)
+;; Result:        lsp-ui-sideline disabled entirely; no duplicate rendering.
+;; -------------------------------
+(after! lsp-ui
+  ;; Disable lsp-ui-sideline completely — sideline-flycheck owns the right gutter
+  (setq lsp-ui-sideline-enable nil)
+  (setq lsp-ui-sideline-show-diagnostics nil)
+  (setq lsp-ui-sideline-show-code-actions nil)
+  (setq lsp-ui-sideline-show-hover nil)
+  ;; Keep lsp-ui-doc for hover popups (peek on K) — still useful
+  (setq lsp-ui-doc-enable t)
+  (setq lsp-ui-doc-show-with-cursor nil)   ; only on demand (K), not auto-popup
+  (setq lsp-ui-doc-show-with-mouse nil))
+
+
+;; -------------------------------
+;; Rust LSP (rust-analyzer)
+;; -------------------------------
+
+;; Hook LSP into rustic-mode (Doom uses rustic-mode, not rust-mode)
+(add-hook 'rustic-mode-hook #'lsp!)
+
+(after! lsp-rust
+  ;; Inlay hints - type info, chaining, parameter names
+  (setq lsp-rust-analyzer-display-chaining-hints t)
+  (setq lsp-rust-analyzer-display-parameter-hints t)
+  (setq lsp-rust-analyzer-max-inlay-hint-length 25)
+  (setq lsp-inlay-hint-enable t)
+
+  ;; Proc macros support (essential for serde, thiserror, etc.)
+  (setq lsp-rust-analyzer-proc-macro-enable t)
+
+  ;; Use clippy instead of plain cargo check (much richer linting)
+  (setq lsp-rust-analyzer-cargo-watch-command "clippy")
+
+  ;; Auto-import completions
+  (setq lsp-rust-analyzer-completion-add-call-parenthesis t)
+
+  ;; Cargo features awareness
+  (setq lsp-rust-analyzer-cargo-all-features t)
+
+  ;; Use library code for better type information
+  (setq lsp-rust-analyzer-use-client-watching t)
+
+  ;; Enable experimental features
+  (setq lsp-rust-analyzer-server-display-inlay-hints t))
+
+;; Auto-format on save using rustfmt
+(add-hook 'rustic-mode-hook
+          (lambda ()
+            (add-hook 'before-save-hook #'lsp-format-buffer nil t)))
+
+;; -------------------------------
+;; Rust Clippy / Flycheck Integration
+;; -------------------------------
+(after! rustic
+  ;; Use clippy for flycheck
+  (setq rustic-flycheck-clippy-params "--message-format=json")
+  (push 'rustic-clippy flycheck-checkers))
+
+;; -------------------------------
+;; Flycheck (consolidated)
+;; -------------------------------
+(after! flycheck
+  ;; Fringe indicator only, symbol underline — sideline handles the text
+  (setq flycheck-indication-mode 'right-fringe)
+  (setq flycheck-highlighting-mode 'symbols)
+  ;; Disable flycheck's own inline display — sideline handles it on the right
+  (setq flycheck-display-errors-function nil)
+
+  ;; Disable jshint in favour of eslint for JS/TS
+  (setq-default flycheck-disabled-checkers
+                (append flycheck-disabled-checkers
+                        '(javascript-jshint)))
+  (flycheck-add-mode 'javascript-eslint 'typescript-mode)
+  (flycheck-add-mode 'javascript-eslint 'typescript-ts-mode)
+  (flycheck-add-mode 'javascript-eslint 'tsx-ts-mode))
+
+;; -------------------------------
+;; Inline Diagnostics (Error Lens style)
+;; -------------------------------
+
+;; flycheck-inline disabled — sideline already shows errors on the right,
+;; enabling both causes tripled messages
+;; (use-package! flycheck-inline
+;;   :after flycheck
+;;   :hook (flycheck-mode . flycheck-inline-mode))
+
+;; sideline shows diagnostics + code actions inline on the right side of the buffer
+;; Backend order: sideline-lsp first (code actions / lightbulbs),
+;;                sideline-flycheck second (errors from clippy, eslint, pyright, etc.)
+(use-package! sideline
+  :after flycheck
+  :hook (flycheck-mode . sideline-mode)
+  :config
+  (setq sideline-backends-right '(sideline-lsp sideline-flycheck)
+        sideline-delay 0.2
+        sideline-display-backend-name t))
+
+(use-package! sideline-flycheck
+  :after (sideline flycheck)
+  :hook (flycheck-mode . sideline-flycheck-setup))
+
+;; sideline-lsp: shows LSP code actions inline (lightbulb hints)
+;; replaces lsp-ui-sideline code-action display without enabling lsp-ui-sideline
+(use-package! sideline-lsp
+  :after (sideline lsp-mode)
+  :hook (lsp-mode . sideline-mode))
+
+
+;; -------------------------------
 ;; DAP (Debug Adapter Protocol)
 ;; -------------------------------
+
 (use-package! dap-mode
   :config
-  ;; Enable debug logging
   (setq dap-print-io t)
   (setq dap-auto-configure-mode t)
-
-  ;; Enable UI features
   (setq dap-auto-configure-features
         '(sessions locals breakpoints expressions repl controls tooltip))
 
-  ;; Load language-specific adapters
+  ;; Load codelldb FIRST before other adapters
+  (require 'dap-codelldb)
+  (setq dap-codelldb-debug-path
+        (expand-file-name "~/.emacs.d/.local/cache/.extension/vscode/codelldb/extension"))
+
+  ;; Other adapters
   (require 'dap-python)
   (require 'dap-dlv-go)
-  (require 'dap-js)  ; Node.js/TypeScript debugging (modern vscode-js-debug)
+  (require 'dap-js)
 
-  ;; Python configuration
   (setq dap-python-debugger 'debugpy)
   (setq dap-python-executable "python3")
 
-  ;; FIX: Only install js-debug adapter if not already present
-  ;; Previously ran dap-js-setup unconditionally every startup, which
-  ;; can cause race conditions and adapter corruption.
   (unless (and (boundp 'dap-js-path)
                (file-exists-p (expand-file-name "src/dapDebugServer.js" dap-js-path)))
     (dap-js-setup))
 
-  ;; Show locals when stopped
   (add-hook 'dap-stopped-hook
             (lambda (arg) (call-interactively #'dap-ui-locals)))
 
@@ -282,16 +452,7 @@
           :program nil
           :args nil))
 
-  ;; ---------------------------------------------------------------
   ;; Node.js / TypeScript debug templates
-  ;; FIX: corrected attach template:
-  ;;   - added :address "localhost" (required by pwa-node attach)
-  ;;   - added :restart t (prevents ECONNRESET on brief disconnects)
-  ;;   - fixed :resolveSourceMapLocations to use workspaceFolder glob
-  ;;     instead of individual file extension patterns, which is what
-  ;;     vscode-js-debug actually expects
-  ;; ---------------------------------------------------------------
-
   (dap-register-debug-template "Node :: Attach (JS/TS)"
     (list :type "pwa-node"
           :request "attach"
@@ -303,8 +464,6 @@
           :skipFiles ["<node_internals>/**" "**/node_modules/**"]
           :resolveSourceMapLocations ["${workspaceFolder}/**" "!**/node_modules/**"]))
 
-  ;; Launch template using ts-node
-  ;; FIX: added :address and corrected :resolveSourceMapLocations
   (dap-register-debug-template "Node :: Launch TS File (ts-node)"
     (list :type "pwa-node"
           :request "launch"
@@ -316,7 +475,52 @@
           :runtimeArgs ["--require" "ts-node/register" "--enable-source-maps"]
           :skipFiles ["<node_internals>/**" "**/node_modules/**"]
           :sourceMaps t
-          :resolveSourceMapLocations ["${workspaceFolder}/**" "!**/node_modules/**"])))
+          :resolveSourceMapLocations ["${workspaceFolder}/**" "!**/node_modules/**"]))
+
+  ;; Rust debug function — prompts for template then binary
+  (defun my/dap-rust-debug ()
+    "Launch Rust debugger with template selection."
+    (interactive)
+    (let* ((root (projectile-project-root))
+           (template (completing-read "Template: "
+                                      '("Rust :: Run Binary"
+                                        "Rust :: Run Test")
+                                      nil t)))
+      (if (string= template "Rust :: Run Test")
+          (progn
+            (message "Compiling tests...")
+            (shell-command-to-string
+             (concat "cd " root " && cargo test --no-run 2>&1"))
+            (let* ((deps-dir (concat root "target/debug/deps/"))
+                   (test-binaries (seq-filter
+                                   (lambda (f)
+                                     (and (file-executable-p (concat deps-dir f))
+                                          (not (string-match-p "\\." f))))
+                                   (directory-files deps-dir nil nil t)))
+                   (binary (completing-read "Test binary: " test-binaries nil t)))
+              (dap-debug
+               (list :type "lldb"
+                     :request "launch"
+                     :name template
+                     :program (concat deps-dir binary)
+                     :cwd root
+                     :args (list "--nocapture")))))
+        (progn
+          (message "Building...")
+          (shell-command-to-string
+           (concat "cd " root " && cargo build 2>&1"))
+          (dap-debug
+           (list :type "lldb"
+                 :request "launch"
+                 :name template
+                 :program (read-file-name "Binary: " (concat root "target/debug/"))
+                 :cwd root))))))
+
+  (map! :after dap-mode
+        :map rustic-mode-map
+        :localleader
+        :desc "Debug Rust" "D" #'my/dap-rust-debug))
+
 
 ;; -------------------------------
 ;; Enhanced IBuffer for Buffer Management
@@ -330,7 +534,8 @@
                           (mode . python-mode)
                           (mode . go-mode)
                           (mode . typescript-mode)
-                          (mode . typescript-tsx-mode)
+                          (mode . typescript-ts-mode)
+                          (mode . tsx-ts-mode)
                           (mode . rust-mode)
                           (mode . c-mode)
                           (mode . c++-mode)))
@@ -380,10 +585,12 @@
 (add-hook 'go-mode-hook #'dap-mode)
 (add-hook 'python-mode-hook #'dap-mode)
 (add-hook 'typescript-mode-hook #'dap-mode)
-(add-hook 'typescript-tsx-mode-hook #'dap-mode)
+(add-hook 'tsx-ts-mode-hook #'dap-mode)
+(add-hook 'typescript-ts-mode-hook #'dap-mode)
 (add-hook 'js-mode-hook #'dap-mode)
+(add-hook 'rustic-mode-hook #'dap-mode)
 
-;; DAP keybindings for Python and Go
+;; DAP keybindings
 (map! :after dap-mode
       :map dap-mode-map
       :localleader
@@ -419,32 +626,27 @@
 ;; Prettier integration
 (use-package! prettier
   :hook ((typescript-mode . prettier-mode)
-         (typescript-tsx-mode . prettier-mode)
+         (typescript-ts-mode . prettier-mode)
+         (tsx-ts-mode . prettier-mode)
          (json-mode . prettier-mode)
          (css-mode . prettier-mode)
          (scss-mode . prettier-mode)))
 
 ;; Use prettier by default for formatting
 (setq-hook! 'typescript-mode-hook +format-with 'prettier)
-(setq-hook! 'typescript-tsx-mode-hook +format-with 'prettier)
+(setq-hook! 'typescript-ts-mode-hook +format-with 'prettier)
+(setq-hook! 'tsx-ts-mode-hook +format-with 'prettier)
 
 ;; Auto-organize imports on save (like Python)
 (add-hook 'typescript-mode-hook
           (lambda ()
             (add-hook 'before-save-hook #'lsp-organize-imports nil t)))
-(add-hook 'typescript-tsx-mode-hook
+(add-hook 'typescript-ts-mode-hook
           (lambda ()
             (add-hook 'before-save-hook #'lsp-organize-imports nil t)))
-
-;; Enable ESLint for linting
-(after! flycheck
-  (setq-default flycheck-disabled-checkers
-                (append flycheck-disabled-checkers
-                        '(javascript-jshint)))
-  (flycheck-add-mode 'javascript-eslint 'typescript-mode)
-  (flycheck-add-mode 'javascript-eslint 'typescript-tsx-mode))
-
-;; Company settings are in modules/company.el
+(add-hook 'tsx-ts-mode-hook
+          (lambda ()
+            (add-hook 'before-save-hook #'lsp-organize-imports nil t)))
 
 ;; -------------------------------
 ;; React & Next.js Snippets (TypeScript)
@@ -454,7 +656,7 @@
   (yas-global-mode 1))
 
 ;; Enhanced React/Next.js snippets for TypeScript
-(yas-define-snippets 'typescript-tsx-mode
+(yas-define-snippets 'tsx-ts-mode
                      '(("rfc"
                         "import React from 'react';\n\nexport default function ${1:Component}() {\n  return (\n    <div>$0</div>\n  );\n}"
                         "React functional component")
@@ -491,12 +693,17 @@
                         "import { Hono } from 'hono';\n\nconst app = new Hono();\n\napp.get('/${1:path}', (c) => {\n  return c.json({ $0 });\n});\n\nexport default app;"
                         "Hono API route")))
 
-;; Optional: better syntax highlighting
+;; Optional: better syntax highlighting via tree-sitter
 (after! tree-sitter
   (add-hook 'typescript-mode-hook #'tree-sitter-mode)
-  (add-hook 'typescript-tsx-mode-hook #'tree-sitter-mode)
+  (add-hook 'typescript-ts-mode-hook #'tree-sitter-mode)
+  (add-hook 'tsx-ts-mode-hook #'tree-sitter-mode)
   (add-hook 'typescript-mode-hook #'tree-sitter-hl-mode)
-  (add-hook 'typescript-tsx-mode-hook #'tree-sitter-hl-mode))
+  (add-hook 'typescript-ts-mode-hook #'tree-sitter-hl-mode)
+  (add-hook 'tsx-ts-mode-hook #'tree-sitter-hl-mode)
+  ;; Rust tree-sitter
+  (add-hook 'rustic-mode-hook #'tree-sitter-mode)
+  (add-hook 'rustic-mode-hook #'tree-sitter-hl-mode))
 
 
 ;; Ensure LSP uses the correct interpreter after venv is activated
@@ -528,9 +735,15 @@
   ;; Optimization level (2 = max optimization)
   (setq native-comp-speed 2))
 
-;; Tree-sitter settings
+;; Tree-sitter grammar load path
 (setq treesit-extra-load-path
       (list (expand-file-name "tree-sitter" user-emacs-directory)))
+
+;; Register tsx/typescript/rust grammar sources so treesit-install-language-grammar works
+(setq treesit-language-source-alist
+      '((tsx        . ("https://github.com/tree-sitter/tree-sitter-typescript" "master" "tsx/src"))
+        (typescript . ("https://github.com/tree-sitter/tree-sitter-typescript" "master" "typescript/src"))
+        (rust       . ("https://github.com/tree-sitter/tree-sitter-rust"))))
 
 ;; -------------------------------
 ;; Proxy Configuration for VPN
@@ -594,6 +807,9 @@
   (setq acp-api-key (getenv "ANTHROPIC_AUTH_TOKEN"))
   (setq acp-anthropic-api-url (getenv "ANTHROPIC_BASE_URL")))
 
+;; Add npm global bin to exec-path so Emacs can find claude-agent-acp
+(add-to-list 'exec-path (expand-file-name "~/.npm-global/bin"))
+
 (use-package! agent-shell
   :after (shell-maker acp)
   :commands (agent-shell agent-shell-send-region)
@@ -602,9 +818,6 @@
   (setq agent-shell-claude-model
         (or (getenv "ANTHROPIC_DEFAULT_SONNET_MODEL")
             "vertex_ai/claude-sonnet-4-5")))
-
-;; Add npm global bin to exec-path so Emacs can find claude-agent-acp
-(add-to-list 'exec-path (expand-file-name "~/.npm-global/bin"))
 
 ;; Set up keybindings for agent-shell
 (map! :leader
