@@ -1,3 +1,6 @@
 # Claude Code settings (contains secrets)
 .claude/
 /.agent-shell/
+
+# Debug adapters (downloaded binaries, not source code)
+debug-adapters/

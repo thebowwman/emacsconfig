@@ -72,11 +72,9 @@
 (package! sideline-flycheck)
 (package! sideline-lsp)
 
-;; Disable dape in favor of dap-mode
-(package! dape :disable t)
-
-;; Explicitly enable dap-mode
-(package! dap-mode)
+;; Dape - Debug Adapter Protocol for Emacs (replaces dap-mode)
+;; Doom's debugger module provides dape, but we unpin to get latest
+(unpin! dape)
 
 ;; Agent Shell - AI assistant in Emacs shell
 (package! shell-maker)  ; Available on MELPA

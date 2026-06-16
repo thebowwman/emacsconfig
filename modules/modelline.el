@@ -15,8 +15,11 @@
 
 ;; Send files to trash instead of fully deleting
 (setq delete-by-moving-to-trash t)
-;; Save automatically
+;; Save automatically — auto-save-visited-mode saves actual files to disk
+;; after idle (like VSCode), not just recovery files
 (setq auto-save-default t)
+(auto-save-visited-mode 1)
+(setq auto-save-visited-interval 5)  ;; save after 5 seconds idle
 
 ;; Performance optimizations
 (setq gc-cons-threshold (* 256 1024 1024))
@@ -49,7 +52,7 @@
       completion-ignore-case t)
 ;; Use the familiar C-x C-f interface for directory completion
 (map! :map minibuffer-mode-map
-      :when (featurep! :completion vertico)
+      :when (modulep! :completion vertico)
       "C-x C-f" #'find-file)
 
 ;; Save minibuffer history - enables command history in M-x

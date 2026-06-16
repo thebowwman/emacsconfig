@@ -6,10 +6,10 @@ Complete Python development setup with LSP, auto-imports, virtual environments, 
 
 ## 📋 Overview
 
-**LSP Server**: Pyright (`/usr/bin/pyright`)
+**LSP Server**: basedpyright (stricter pyright fork, from project venv)
 **Virtual Env Manager**: pyvenv
-**Debugger**: debugpy (via DAP)
-**Python Version**: 3.10.12 (`/usr/bin/python3`)
+**Debugger**: debugpy (via dape)
+**Python Version**: 3.12+ (via project venv)
 **Auto-features**: Imports, organize imports, type hints
 
 ### ✅ Verified Installation
@@ -39,9 +39,9 @@ debugpy: Installed via pip in virtual environments
 
 **Configuration:**
 ```elisp
-(setq lsp-disabled-clients '(pylsp))  ; Disable pylsp, use pyright only
-(setq lsp-pyright-auto-import-completions t)
-(setq lsp-pyright-use-library-code-for-types t)
+(setq lsp-disabled-clients '(pylsp pyright pyls semgrep-ls ruff ty-ls))
+;; basedpyright registered via lsp-register-client with priority 3
+;; Auto-import and library code for types enabled via lsp-register-custom-settings
 ```
 
 ### Auto-Organize Imports
@@ -113,35 +113,26 @@ pip install debugpy
 ### Basic Debugging Workflow
 
 1. **Activate virtual environment** (automatic if `.venv` exists)
-2. **Set breakpoint**: `SPC m d b` on desired line
-3. **Start debugging**: `SPC m d d` → Select "Python :: Run Current File"
-4. **Step through**: `SPC m d n` (next), `SPC m d i` (step in)
-5. **Inspect variables**: Hover or `SPC m d v`
+2. **Set breakpoint**: `SPC d b` on desired line
+3. **Start debugging**: `SPC d d` → Select "Python :: Run Current File"
+4. **Step through**: `SPC d n` (next), `SPC d s` (step in)
+5. **Inspect variables**: Hover or `SPC d i`
 
-### Advanced: Django/Flask Debugging
+### Per-Project Debug Config (.dir-locals.el)
 
-For web frameworks, create custom debug template in `config.el`:
+Instead of dap-register-debug-template, dape uses .dir-locals.el for per-project config:
 
 ```elisp
-(dap-register-debug-template "Python :: Django runserver"
-  (list :type "python"
-        :args "-m django runserver --noreload"
-        :cwd nil
-        :program nil
-        :request "launch"
-        :name "Python :: Django runserver"))
+;; .dir-locals.el in project root
+((python-mode . ((dape-command . (debugpy-module
+                                  :module "manage"
+                                  :args ["runserver" "--noreload"]
+                                  :justMyCode nil)))))
 ```
 
-### Debugging Tests
-
-```elisp
-(dap-register-debug-template "Python :: pytest current file"
-  (list :type "python"
-        :args "-m pytest ${file}"
-        :cwd nil
-        :program nil
-        :request "launch"
-        :name "Python :: pytest current file"))
+For pytest debugging:
+```
+SPC d d → debugpy-module :module "pytest" :args ["-xvs" "tests/"]
 ```
 
 ---
@@ -158,7 +149,7 @@ For web frameworks, create custom debug template in `config.el`:
 | `SPC c a` | `lsp-execute-code-action` | Code actions (import, fix) |
 
 ### Debugging
-All DAP keybindings work - see [DAP_DEBUGGING.md](DAP_DEBUGGING.md)
+All dape keybindings work (SPC d prefix) - see [DAPE_DEBUGGER_GUIDE.md](DAPE_DEBUGGER_GUIDE.md)
 
 ---
 
@@ -218,14 +209,14 @@ app = FastAPI()
 
 @app.get("/users/{user_id}")
 async def get_user(user_id: int):
-    # Set breakpoint here ← SPC m d b
+    # Set breakpoint here ← SPC d b
     user = await fetch_user(user_id)
     return {"user": user}
 ```
 
 **Debug steps:**
-1. `SPC m d b` on line 7
-2. `SPC m d d` → "Python :: Run Current File"
+1. `SPC d b` on line 7
+2. `SPC d d` → "Python :: Run Current File"
 3. In terminal: `curl http://localhost:8000/users/1`
 4. Debugger pauses, inspect `user_id`
 
@@ -235,8 +226,8 @@ async def get_user(user_id: int):
 
 ### Current Setup
 ```elisp
-(setq lsp-pyright-python-executable-cmd "python")
 (setq python-shell-interpreter "python")
+;; basedpyright-langserver found via pyvenv auto-activation
 ```
 
 **What this means:**
@@ -338,9 +329,9 @@ python -c "import debugpy; print(debugpy.__version__)"
 pip install debugpy
 ```
 
-**Check dap-mode:**
+**Check dape:**
 ```
-M-x dap-debug  → Should show Python templates
+M-x dape  → Should show debugpy config
 ```
 
 ### Imports Not Organizing on Save
@@ -391,5 +382,5 @@ pip install \
 
 ## 🔗 Related Documentation
 
-- [DAP_DEBUGGING.md](DAP_DEBUGGING.md) - General debugging workflow
+- [DAPE_DEBUGGER_GUIDE.md](DAPE_DEBUGGER_GUIDE.md) - General debugging workflow
 - [CLAUDE.md](CLAUDE.md) - Main configuration index

@@ -9,7 +9,7 @@ Complete full-stack TypeScript setup for React frontends and Node.js backends (N
 **LSP Server**: typescript-language-server (tsserver wrapper)
 **Formatter**: Prettier
 **Linter**: ESLint
-**Debugger**: vscode-js-debug (via DAP)
+**Debugger**: vscode-js-debug (via dape)
 **Node.js**: v20.18.3
 **Frameworks**: React, Next.js, Hono
 
@@ -20,7 +20,7 @@ Node.js:  /usr/bin/node (v20.18.3)
 npm:      /usr/bin/npm (v10.8.2)
 tsserver: ~/.npm-global/bin/tsserver
 ts-lang:  ~/.npm-global/bin/typescript-language-server
-Debugger: ~/.config/emacs/.local/cache/.extension/js-debug/src/dapDebugServer.js
+Debugger: ~/.doom.d/debug-adapters/js-debug/src/dapDebugServer.js
 ```
 
 ---
@@ -132,7 +132,7 @@ SPC c a  → "Fix all ESLint errors"
 ~/.npm-global/bin/typescript-language-server --version
 # Output: Installed ✓
 
-ls ~/.config/emacs/.local/cache/.extension/js-debug/src/dapDebugServer.js
+ls ~/.doom.d/debug-adapters/js-debug/src/dapDebugServer.js
 # Output: File exists ✓
 ```
 
@@ -153,14 +153,14 @@ npm install --save-dev ts-node
 **For TypeScript files:**
 
 1. **Open file**: `src/your-file.ts`
-2. **Set breakpoint**: `SPC m d b` on desired line (you'll see breakpoint indicator)
+2. **Set breakpoint**: `SPC d b` on desired line (you'll see breakpoint indicator)
 3. **Start debugger in terminal**:
    ```bash
    cd ~/Workspace/your-project
    node --require ts-node/register --enable-source-maps --inspect-brk src/your-file.ts
    ```
-4. **Attach in Emacs**: `SPC m d d` → **"Node :: Attach (JS/TS)"**
-5. **Continue**: Press `SPC m d r` to skip initial break
+4. **Attach in Emacs**: `SPC d d` → **"Node :: Attach (JS/TS)"**
+5. **Continue**: Press `SPC d c` to skip initial break
 6. **Debug**: Debugger pauses at your breakpoints!
 
 **For JavaScript files:**
@@ -181,24 +181,24 @@ Attach to running Node/TypeScript process on port 9229.
 - Any Node process started with `--inspect` or `--inspect-brk`
 
 **Keybindings:**
-- `SPC m d d` → Select "Node :: Attach (JS/TS)"
-- `SPC m d r` → Continue/Resume
-- `SPC m d n` → Step to next line
-- `SPC m d i` → Step into function
-- `SPC m d o` → Step out of function
-- `SPC m d b` → Toggle breakpoint
-- `SPC m d q` → Quit debugger
+- `SPC d d` → Select "Node :: Attach (JS/TS)"
+- `SPC d c` → Continue/Resume
+- `SPC d n` → Step to next line
+- `SPC d s` → Step into function
+- `SPC d o` → Step out of function
+- `SPC d b` → Toggle breakpoint
+- `SPC d q` → Quit debugger
 
 #### **"Node :: Launch TS File (ts-node)"**
 Launch TypeScript file directly with debugging.
 
 **Usage:**
 1. Open TypeScript file
-2. `SPC m d d` → "Node :: Launch TS File (ts-node)"
+2. `SPC d d` → "Node :: Launch TS File (ts-node)"
 3. Select file when prompted
 4. Debugger launches and pauses at breakpoints
 
-**Note:** Breakpoints may not turn green visually, but they WILL pause execution. This is a minor UI issue in dap-mode.
+**Note:** Breakpoints work correctly with dape's js-debug adapter.
 
 ### Debugging Next.js / Hono Servers
 
@@ -212,7 +212,7 @@ node --require ts-node/register --enable-source-maps --inspect src/index.ts
 ```
 
 **Then attach:**
-1. In Emacs: `SPC m d d` → "Node :: Attach (JS/TS)"
+1. In Emacs: `SPC d d` → "Node :: Attach (JS/TS)"
 2. Set breakpoints in API routes
 3. Make request in browser/curl
 4. Debugger pauses at breakpoints!
@@ -229,7 +229,7 @@ node --require ts-node/register --enable-source-maps --inspect src/index.ts
 - Restart Emacs to reload debug configuration
 
 **Can't see variables?**
-- Press `SPC m d v` to open locals panel
+- Press `SPC d i` to open locals panel
 - Hover over variables to see values
 
 ---
@@ -368,7 +368,7 @@ export default app;
 | `SPC c a` | `lsp-execute-code-action` | Code actions (import, fix) |
 
 ### Debugging
-All DAP keybindings work - see [DAP_DEBUGGING.md](DAP_DEBUGGING.md)
+All dape keybindings work (SPC d prefix) - see [DAPE_DEBUGGER_GUIDE.md](DAPE_DEBUGGER_GUIDE.md)
 
 ---
 
@@ -408,7 +408,7 @@ export default function UserCard({ user, onEdit }: UserCardProps) {
 
 **Debug workflow:**
 1. Set breakpoint on `onMouseEnter` handler
-2. `SPC m d d` → "Next.js :: Debug Server"
+2. `SPC d d` → "Next.js :: Debug Server"
 3. Hover over card in browser
 4. Debugger pauses, inspect `user` and `isHovered`
 
@@ -427,7 +427,7 @@ export async function GET(
 ) {
   const userId = params.id;
 
-  // Set breakpoint here ← SPC m d b
+  // Set breakpoint here ← SPC d b
   const user = await getUserById(userId);
 
   if (!user) {
@@ -442,8 +442,8 @@ export async function GET(
 ```
 
 **Debug workflow:**
-1. `SPC m d b` on `getUserById` line
-2. `SPC m d d` → "Next.js :: Debug Server"
+1. `SPC d b` on `getUserById` line
+2. `SPC d d` → "Next.js :: Debug Server"
 3. Request in browser: `/api/users/123`
 4. Debugger pauses, inspect `userId` and `user`
 
@@ -466,7 +466,7 @@ const userSchema = z.object({
 app.post('/users', async (c) => {
   const body = await c.req.json();
 
-  // Set breakpoint ← SPC m d b
+  // Set breakpoint ← SPC d b
   const validated = userSchema.parse(body);
 
   const user = await db.users.create({
@@ -480,8 +480,8 @@ export default app;
 ```
 
 **Debug workflow:**
-1. `SPC m d b` on `userSchema.parse` line
-2. `SPC m d d` → "Node :: Run Current File"
+1. `SPC d b` on `userSchema.parse` line
+2. `SPC d d` → "Node :: Run Current File"
 3. POST request via curl/Postman
 4. Inspect `body` and `validated` data
 
@@ -646,16 +646,22 @@ SPC h r r   # Reload config
 
 Run: `npm run dev:debug`, then attach
 
-**Solution 2: Edit debug template**
+### Debugging TypeScript with Dape
+
+Use .dir-locals.el for per-project config:
+
 ```elisp
-(dap-register-debug-template "Next.js :: Debug Server (Fixed)"
-  (list :type "node"
-        :request "launch"
-        :name "Next.js :: Debug Server (Fixed)"
-        :runtimeExecutable "npm"
-        :runtimeArgs '("run" "dev:debug")
-        :cwd nil
-        :console "integratedTerminal"))
+;; .dir-locals.el
+((typescript-ts-mode . ((dape-command . (js-debug-node
+                                         :program "src/index.ts"
+                                         :cwd dape-cwd
+                                         :runtimeArgs ["--import" "tsx"]
+                                         :console "internalConsole")))))
+```
+
+For Next.js debugging, use js-debug-node with the Next.js dev script:
+```
+SPC d d → js-debug-node :program "node_modules/.bin/next" :args ["dev"]
 ```
 
 ### Path Aliases Not Resolving
@@ -721,5 +727,5 @@ npm install date-fns     # Date formatting
 
 ## 🔗 Related Documentation
 
-- [DAP_DEBUGGING.md](DAP_DEBUGGING.md) - Node.js debugging workflow
+- [DAPE_DEBUGGER_GUIDE.md](DAPE_DEBUGGER_GUIDE.md) - Node.js debugging workflow
 - [CLAUDE.md](CLAUDE.md) - Main configuration index

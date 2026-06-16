@@ -108,37 +108,27 @@ Edit `config.el`:
 ### Basic Debugging Workflow
 
 1. **Open Go file** with `main()` function
-2. **Set breakpoint**: `SPC m d b` on desired line
-3. **Start debugging**: `SPC m d d` → Select "Go :: Run Current File"
-4. **Step through**: `SPC m d n` (next), `SPC m d i` (step in)
-5. **Inspect variables**: Hover or `SPC m d v`
+2. **Set breakpoint**: `SPC d b` on desired line
+3. **Start debugging**: `SPC d d` → Select "Go :: Run Current File"
+4. **Step through**: `SPC d n` (next), `SPC d s` (step in)
+5. **Inspect variables**: Hover or `SPC d i`
 
-### Debugging Tests
+### Debugging Go
 
-Create custom template in `config.el`:
+Dape's built-in `dlv` config handles Go debugging automatically:
 
-```elisp
-(dap-register-debug-template "Go :: Test Current Function"
-  (list :type "go"
-        :request "launch"
-        :name "Go :: Test Current Function"
-        :mode "test"
-        :program "${workspaceFolder}"
-        :args "-test.run MyTestFunction"))
+```
+SPC d d → dlv → Enter
 ```
 
-### Debugging with Build Tags
+For test debugging:
+```
+SPC d d → dlv :mode "test" :program "."
+```
 
-If debugging integration tests:
-
-```elisp
-(dap-register-debug-template "Go :: Run with Integration Tag"
-  (list :type "go"
-        :request "launch"
-        :name "Go :: Run with Integration Tag"
-        :mode "debug"
-        :program nil
-        :buildFlags "-tags=integration"))
+For integration tests with build tags:
+```
+SPC d d → dlv :buildFlags ["-tags=integration"]
 ```
 
 ---
@@ -156,7 +146,7 @@ If debugging integration tests:
 | `SPC c a` | `lsp-execute-code-action` | Code actions (add imports, generate) |
 
 ### Debugging
-All DAP keybindings work - see [DAP_DEBUGGING.md](DAP_DEBUGGING.md)
+All dape keybindings work (SPC d prefix) - see [DAPE_DEBUGGER_GUIDE.md](DAPE_DEBUGGER_GUIDE.md)
 
 ---
 
@@ -236,7 +226,7 @@ func main() {
 
     r.GET("/users/:id", func(c *gin.Context) {
         id := c.Param("id")
-        // Set breakpoint here ← SPC m d b
+        // Set breakpoint here ← SPC d b
         user := fetchUser(id)
         c.JSON(200, user)
     })
@@ -246,8 +236,8 @@ func main() {
 ```
 
 **Debug steps:**
-1. `SPC m d b` on line with `user := fetchUser(id)`
-2. `SPC m d d` → "Go :: Run Current File"
+1. `SPC d b` on line with `user := fetchUser(id)`
+2. `SPC d d` → "Go :: Run Current File"
 3. In terminal: `curl http://localhost:8080/users/123`
 4. Debugger pauses, inspect `id` and `user`
 
@@ -263,7 +253,7 @@ import "testing"
 
 func TestUserRepository_Integration(t *testing.T) {
     // This test needs real database
-    // Set breakpoint here ← SPC m d b
+    // Set breakpoint here ← SPC d b
     repo := NewUserRepository(testDB)
     user, err := repo.GetByID(1)
     // ...
@@ -426,7 +416,7 @@ M-x exec-path-from-shell-initialize
    - "Go :: Test" for test files
 
 3. **Check working directory**
-   - DAP runs from project root
+    - dape runs from project root
    - Ensure project has `go.mod`
 
 ### Slow Completions
@@ -487,5 +477,5 @@ go install github.com/swaggo/swag/cmd/swag@latest  # Swagger docs
 
 ## 🔗 Related Documentation
 
-- [DAP_DEBUGGING.md](DAP_DEBUGGING.md) - General debugging workflow
+- [DAPE_DEBUGGER_GUIDE.md](DAPE_DEBUGGER_GUIDE.md) - General debugging workflow
 - [CLAUDE.md](CLAUDE.md) - Main configuration index

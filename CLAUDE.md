@@ -1,6 +1,6 @@
 # Doom Emacs Configuration
 
-**Last Updated**: 2026-03-15
+**Last Updated**: 2026-06-16
 **Emacs Version**: 31.0.50+
 **Configuration Owner**: Multi-language developer (Python, Go, TypeScript/React)
 
@@ -9,7 +9,7 @@
 ## 📁 Configuration Structure
 
 ```
-~/.config/doom/
+~/.doom.d/
 ├── init.el              # Doom modules (what features are enabled)
 ├── config.el            # Main configuration and settings
 ├── packages.el          # Package declarations
@@ -22,14 +22,17 @@
 │   ├── company.el      # Code completion
 │   ├── evil-mode.el    # Vim keybindings
 │   └── modelline.el    # Statusline and performance
-└── docs/                # Documentation (YOU ARE HERE)
-    ├── CLAUDE.md            # This file - overview and index
-    ├── DAP_DEBUGGING.md     # Debugging setup (all languages)
-    ├── PYTHON_CONF.md       # Python development
-    ├── GO_CONF.md           # Go development
-    ├── TYPESCRIPT_CONF.md   # TypeScript/React/Next.js/Hono
-    ├── ORG_MODE.md          # Org-mode and productivity
-    └── BUFFER_MANAGEMENT.md # Buffer cleanup strategies
+├── debug-adapters/       # Downloaded debug adapters (gitignored)
+├── snippets/             # Custom YASnippet snippets
+├── setup-debug-adapters.sh
+├── CLAUDE.md
+├── DAPE_DEBUGGER_GUIDE.md
+├── DAPE_DEBUGGER_GUIDE.md
+├── PYTHON_CONF.md
+├── GO_CONF.md
+├── TYPESCRIPT_CONF.md
+├── ORG_MODE.md
+└── BUFFER_MANAGEMENT.md
 ```
 
 ---
@@ -38,7 +41,7 @@
 
 ### For Python Development
 → See **[PYTHON_CONF.md](PYTHON_CONF.md)**
-- LSP with Pyright
+- LSP with basedpyright
 - Auto-activate virtual environments
 - Auto-imports and organize imports
 - Debugging with debugpy
@@ -58,10 +61,10 @@
 - Node.js debugging
 
 ### For Debugging (Any Language)
-→ See **[DAP_DEBUGGING.md](DAP_DEBUGGING.md)**
-- DAP mode setup
-- Universal keybindings
-- Setting breakpoints
+→ See **[DAPE_DEBUGGER_GUIDE.md](DAPE_DEBUGGER_GUIDE.md)**
+- Dape debugger setup (replaces dap-mode)
+- Universal keybindings (SPC d prefix)
+- Per-project .dir-locals.el configuration
 - Stepping through code
 
 ### For Org-Mode & Productivity
@@ -100,17 +103,23 @@
 - `format` (+onsave) - Auto-formatting
 
 **Tools:**
-- `lsp` (+peek +dap) - Language Server Protocol + Debugging
+- `lsp` (+peek) - Language Server Protocol
 - `magit` - Git interface
 - `tree-sitter` (+lang) - Better syntax parsing
+- `debugger` - Dape (Debug Adapter Protocol)
+- `editorconfig` - Respect .editorconfig files
 
 **Languages:**
 - Python (+lsp +tree-sitter +pyright)
 - Go (+lsp)
-- TypeScript (+lsp)
+- TypeScript (+lsp +tree-sitter)
+- JavaScript (+lsp +tree-sitter)
 - TSX - React support
 - Rust (+lsp)
 - C/C++ (+lsp)
+- JSON, Data formats (TOML, CSV)
+- Web (HTML/CSS)
+- REST client
 - Org-mode
 - Markdown, YAML, Shell script
 
@@ -133,7 +142,6 @@
 
 ### LSP General Settings
 ```elisp
-(setq lsp-session-file nil)              ; Don't persist sessions
 (setq lsp-keep-workspace-alive nil)      ; Kill workspace when last buffer closes
 (setq lsp-enable-file-watchers t)
 (setq lsp-file-watch-threshold 500)
@@ -179,8 +187,8 @@
 ## 📦 Installed Packages
 
 ### Development
-- `dap-mode` - Debug Adapter Protocol (debugging)
-- `lsp-pyright` - Python LSP
+- `dape` - Debug Adapter Protocol (debugging, replaces dap-mode)
+- `basedpyright` - Python LSP (stricter pyright fork)
 - `prettier` - Code formatting (TS/React/JSON)
 - `pyvenv` - Python virtual environments
 - `exec-path-from-shell` - Load shell PATH
@@ -193,8 +201,12 @@
 ### Utilities
 - `tldr` - Command help pages
 
-### Disabled Packages
-- `dape` - Disabled in favor of `dap-mode`
+### New Features (2026-06-16)
+- `subword-mode` - CamelCase-aware navigation (Go/TS/Rust)
+- `duplicate-dwim` - Duplicate line or region (C-S-d)
+- `view-read-only` - Pager-like bindings in read-only buffers
+- `undelete-frame-mode` - Undo accidental frame close
+- `auto-save-visited-mode` - Auto-save files to disk (like VSCode)
 
 ---
 
@@ -213,11 +225,13 @@
 - See **[BUFFER_MANAGEMENT.md](BUFFER_MANAGEMENT.md)** for more
 
 ### Debugging (All Languages)
-- `SPC m d d` - Start debugging
-- `SPC m d b` - Toggle breakpoint
-- `SPC m d n` - Step over (next)
-- `SPC m d i` - Step into
-- See **[DAP_DEBUGGING.md](DAP_DEBUGGING.md)** for complete list
+- `SPC d d` - Start debugging (dape)
+- `SPC d b` - Toggle breakpoint
+- `SPC d n` - Step over (next)
+- `SPC d s` - Step into
+- `SPC d q` - Quit session
+- `C-x C-a` - Dape command prefix (with repeat-mode)
+- See **[DAPE_DEBUGGER_GUIDE.md](DAPE_DEBUGGER_GUIDE.md)** for complete list
 
 ### Language-Specific
 See individual language documentation files
@@ -228,7 +242,7 @@ See individual language documentation files
 
 ### Modified `packages.el`
 ```bash
-~/.config/emacs/bin/doom sync
+~/.emacs.d/bin/doom sync
 ```
 Then restart Emacs.
 
@@ -241,7 +255,7 @@ Or restart Emacs.
 
 ### Modified `init.el` (changed modules)
 ```bash
-~/.config/emacs/bin/doom sync
+~/.emacs.d/bin/doom sync
 ```
 Then restart Emacs.
 
@@ -255,7 +269,7 @@ Then restart Emacs.
 3. Run `M-x lsp-doctor` for diagnostics
 
 ### DAP debugging not working
-See **[DAP_DEBUGGING.md](DAP_DEBUGGING.md)** - Troubleshooting section
+See **[DAPE_DEBUGGER_GUIDE.md](DAPE_DEBUGGER_GUIDE.md)** - Troubleshooting section
 
 ### Auto-imports not working
 Check language-specific configuration files
@@ -275,7 +289,7 @@ Or restart Emacs.
 
 | File | Description |
 |------|-------------|
-| **[DAP_DEBUGGING.md](DAP_DEBUGGING.md)** | Cross-language debugging setup and workflow |
+| **[DAPE_DEBUGGER_GUIDE.md](DAPE_DEBUGGER_GUIDE.md)** | Complete debugger guide for all languages |
 | **[PYTHON_CONF.md](PYTHON_CONF.md)** | Python development (LSP, pyvenv, debugging) |
 | **[GO_CONF.md](GO_CONF.md)** | Go development (LSP, gopls, delve) |
 | **[TYPESCRIPT_CONF.md](TYPESCRIPT_CONF.md)** | TypeScript/React/Next.js/Hono development |
@@ -287,7 +301,7 @@ Or restart Emacs.
 ## 🎓 Learning Resources
 
 - [Doom Emacs Documentation](https://github.com/doomemacs/doomemacs)
-- [DAP Mode](https://emacs-lsp.github.io/dap-mode/)
+- [Dape](https://github.com/svaante/dape)
 - [LSP Mode](https://emacs-lsp.github.io/lsp-mode/)
 - [Org-mode Guide](https://orgmode.org/guide/)
 

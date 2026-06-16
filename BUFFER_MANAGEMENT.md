@@ -220,7 +220,7 @@ SPC TAB d  → Delete "frontend-ui"
 2. Navigate to "Temp" group
 3. `m` on `*compilation*` - Mark
 4. `m` on `*lsp-log*` - Mark
-5. `m` on `*dap-server-log*` - Mark
+5. `m` on `*dape-repl*` - Mark
 6. `x` - Kill all marked buffers
 7. `q` - Close ibuffer
 

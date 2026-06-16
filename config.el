@@ -186,17 +186,16 @@
 (use-package! exec-path-from-shell
   :init
   (setq exec-path-from-shell-variables '("PATH" "GOPATH" "GOROOT"))
-  (when (memq window-system '(mac ns x))
-    (exec-path-from-shell-initialize))
-  ;; Also initialize in terminal
-  (unless (memq window-system '(mac ns x))
-    (exec-path-from-shell-initialize)))
+  (exec-path-from-shell-initialize))
 
 ;; Ensure npm global bin is in PATH
 (add-to-list 'exec-path (expand-file-name "~/.npm-global/bin"))
 
 ;; Ensure Go tools are in PATH
+(add-to-list 'exec-path "/usr/local/go/bin")
+(setenv "PATH" (concat "/usr/local/go/bin:" (getenv "PATH")))
 (add-to-list 'exec-path (expand-file-name "~/go/bin"))
+(setenv "PATH" (concat (expand-file-name "~/go/bin") ":" (getenv "PATH")))
 
 ;; Ensure Cargo/Rust tools are in PATH
 (add-to-list 'exec-path (expand-file-name "~/.cargo/bin"))
@@ -205,9 +204,6 @@
 (use-package! pyvenv
   :config
   (pyvenv-mode 1)
-  ;; Do NOT enable pyvenv-tracking-mode globally — it bleeds venv display
-  ;; into non-Python buffers (Rust, Go, etc.). Per-hook activation is enough.
-  ;; (pyvenv-tracking-mode 1)
 
   ;; Helper function to find and activate .venv
   (defun my/auto-activate-venv ()
@@ -220,36 +216,94 @@
             (pyvenv-activate venv-path)
             (message "Activated venv: %s" venv-path))))))
 
-  ;; Auto-activate .venv when opening Python files
+  ;; Auto-manage venv on project/workspace switch.
+  ;; If the new project has a .venv, activate it. If not, deactivate.
+  ;; This prevents venv from bleeding into non-Python workspaces.
+  ;; Uses the current buffer's directory or projectile root to find .venv,
+  ;; with a short delay on workspace switch so the buffer has time to update.
+  (defun my/pyvenv-on-project-switch ()
+    "Activate .venv if the project has one, otherwise deactivate."
+    (let* ((dir (or (and (fboundp 'projectile-project-root)
+                         (ignore-errors (projectile-project-root)))
+                    default-directory))
+           (venv-dir (locate-dominating-file dir ".venv")))
+      (if venv-dir
+          (let ((venv-path (expand-file-name ".venv" venv-dir)))
+            (unless (and (boundp 'pyvenv-virtual-env)
+                         (string= pyvenv-virtual-env venv-path))
+              (pyvenv-activate venv-path)
+              (message "Activated venv: %s" venv-path)))
+        ;; No .venv in this project — deactivate if one is active
+        (when (and (boundp 'pyvenv-virtual-env) pyvenv-virtual-env)
+          (pyvenv-deactivate)))))
+
+  ;; Activate venv when opening Python files
   (add-hook 'python-mode-hook #'my/auto-activate-venv)
+  (add-hook 'python-ts-mode-hook #'my/auto-activate-venv)
 
-  ;; Auto-activate .venv when switching projects (Projectile)
-  ;; Only triggers when actually switching, not on every buffer change
-  (add-hook 'projectile-after-switch-project-hook #'my/auto-activate-venv)
+  ;; Activate/deactivate on project switch
+  (add-hook 'projectile-after-switch-project-hook #'my/pyvenv-on-project-switch)
+  ;; On workspace switch, delay slightly so the buffer updates first.
+  ;; Skip during kill-emacs (Doom cycles workspaces to save them on quit).
+  (defvar my/emacs-quitting nil "Non-nil when Emacs is shutting down.")
+  (add-hook 'kill-emacs-hook (lambda () (setq my/emacs-quitting t)) -100)
+  (advice-add #'save-buffers-kill-emacs :before
+              (lambda (&rest _) (setq my/emacs-quitting t)))
 
-  ;; Removed: emacs-startup-hook — caused venv to activate based on launch
-  ;; directory rather than actual Python context, polluting all buffers.
-  )
+  (add-hook 'persp-activated-functions
+            (lambda (_name)
+              (unless my/emacs-quitting
+                (run-at-time 0.1 nil #'my/pyvenv-on-project-switch)))))
 
-(setq lsp-pyright-python-executable-cmd "python")
+
 (setq python-shell-interpreter "python")
 
 ;; -------------------------------
-;; Pyright auto-import support
+;; Basedpyright LSP (stricter pyright fork — matches pre-commit)
+;; Uses basedpyright-langserver from the project venv.
 ;; -------------------------------
-(setq lsp-disabled-clients '(pylsp))   ;; disable pylsp
+;; Disable other Python LSP servers — basedpyright is our only Python LSP
+(setq lsp-disabled-clients '(pylsp pyright pyls semgrep-ls ruff ty-ls))
 
-(add-hook 'python-mode-hook #'lsp!)     ;; force start LSP with pyright
+;; Start LSP AFTER venv activation. Hook depth -90 ensures lsp! runs after
+;; my/auto-activate-venv (depth 0), so the venv is active and
+;; basedpyright-langserver is in PATH when LSP starts.
+(add-hook 'python-mode-hook #'lsp! -90)
+(add-hook 'python-ts-mode-hook #'lsp! -90)
 
-(after! lsp-pyright
-  ;; Enable auto-import suggestions in completion popups
-  (setq lsp-pyright-auto-import-completions t)
+(after! lsp-mode
+  ;; Register basedpyright as a higher-priority LSP client.
+  ;; basedpyright uses the same wire protocol as pyright (python.* settings)
+  ;; but reads typeCheckingMode from [tool.basedpyright] in pyproject.toml.
+  (lsp-register-client
+   (make-lsp-client
+    :new-connection (lsp-stdio-connection
+                     (lambda ()
+                       (list (or (executable-find "basedpyright-langserver")
+                                 "basedpyright-langserver")
+                             "--stdio")))
+    :major-modes '(python-mode python-ts-mode)
+    :server-id 'basedpyright
+    :multi-root t
+    :priority 3  ;; higher than pyright (priority 2)
+    :initialized-fn (lambda (workspace)
+                      (with-lsp-workspace workspace
+                        (lsp--set-configuration
+                         (lsp-configuration-section "python"))))
+    :notification-handlers (lsp-ht)))
 
-  ;; Use library code for better type information
-  (setq lsp-pyright-use-library-code-for-types t))
+  ;; Settings sent via LSP — basedpyright uses python.analysis.* like pyright
+  (lsp-register-custom-settings
+   '(("python.analysis.autoImportCompletions" t t)
+     ("python.analysis.useLibraryCodeForTypes" t t)
+     ("python.analysis.autoSearchPaths" t t)
+     ("python.analysis.diagnosticMode" "openFilesOnly"))))
 
 ;; Optional: auto-organize imports when saving
 (add-hook 'python-mode-hook
+          (lambda ()
+            (add-hook 'before-save-hook #'lsp-organize-imports nil t)))
+(add-hook 'python-ts-mode-hook
           (lambda ()
             (add-hook 'before-save-hook #'lsp-organize-imports nil t)))
 
@@ -257,11 +311,10 @@
 ;; LSP Configuration (consolidated)
 ;; -------------------------------
 (after! lsp-mode
-  ;; Session Management
-  (setq lsp-session-file nil)  ; Don't persist workspace folders
+  ;; Session Management — persist workspace folders so LSP remembers project roots
+  ;; (prevents "not part of any project" prompts on every restart)
   (setq lsp-enable-file-watchers t
         lsp-file-watch-threshold 500)
-  (setq lsp-auto-guess-root t)
   (setq lsp-keep-workspace-alive nil)  ; Kill workspace when last buffer closes
 
   ;; Route LSP diagnostics through flycheck so sideline/inline packages see them
@@ -328,17 +381,11 @@
   ;; Use clippy instead of plain cargo check (much richer linting)
   (setq lsp-rust-analyzer-cargo-watch-command "clippy")
 
-  ;; Auto-import completions
-  (setq lsp-rust-analyzer-completion-add-call-parenthesis t)
+  ;; Auto-import completions (note: trailing 's' in variable name)
+  (setq lsp-rust-analyzer-completion-add-call-parentheses t)
 
   ;; Cargo features awareness
-  (setq lsp-rust-analyzer-cargo-all-features t)
-
-  ;; Use library code for better type information
-  (setq lsp-rust-analyzer-use-client-watching t)
-
-  ;; Enable experimental features
-  (setq lsp-rust-analyzer-server-display-inlay-hints t))
+  (setq lsp-rust-analyzer-cargo-all-features t))
 
 ;; Auto-format on save using rustfmt
 (add-hook 'rustic-mode-hook
@@ -348,8 +395,8 @@
 ;; -------------------------------
 ;; Rust Clippy / Flycheck Integration
 ;; -------------------------------
-(after! rustic
-  ;; Use clippy for flycheck
+(after! (rustic flycheck)
+  ;; Use clippy for flycheck — must wait for both rustic AND flycheck
   (setq rustic-flycheck-clippy-params "--message-format=json")
   (push 'rustic-clippy flycheck-checkers))
 
@@ -404,122 +451,127 @@
 
 
 ;; -------------------------------
-;; DAP (Debug Adapter Protocol)
+;; Dape (Debug Adapter Protocol for Emacs)
+;; Replaces dap-mode — zero dependencies, built into Doom's debugger module
+;; Doom's debugger module handles: projectile CWD, breakpoint persistence,
+;; window arrangement (right), inlay hints, and REPL mode-line.
+;; Below we add language-specific configs and keybindings.
 ;; -------------------------------
 
-(use-package! dap-mode
-  :config
-  (setq dap-print-io t)
-  (setq dap-auto-configure-mode t)
-  (setq dap-auto-configure-features
-        '(sessions locals breakpoints expressions repl controls tooltip))
+;; Autoload dape commands so SPC d keybindings work before dape is loaded
+(dolist (cmd '(dape-pause dape-continue dape-next dape-step-in dape-step-out
+              dape-restart dape-restart-frame dape-info dape-repl dape-memory
+              dape-disassemble dape-breakpoint-log dape-breakpoint-expression
+              dape-breakpoint-hits dape-breakpoint-toggle dape-breakpoint-remove-all
+              dape-select-thread dape-select-stack dape-stack-select-down
+              dape-stack-select-up dape-evaluate-expression dape-watch-dwim
+              dape-disconnect-quit dape-quit dape-until dape-breakpoint-remove-at-point))
+  (autoload cmd "dape" nil t))
 
-  ;; Load codelldb FIRST before other adapters
-  (require 'dap-codelldb)
-  (setq dap-codelldb-debug-path
-        (expand-file-name "~/.emacs.d/.local/cache/.extension/vscode/codelldb/extension"))
+(after! dape
+  ;; Save buffers before starting a debug session (useful for interpreted langs)
+  (add-hook 'dape-start-hook (lambda () (save-some-buffers t t)))
 
-  ;; Other adapters
-  (require 'dap-python)
-  (require 'dap-dlv-go)
-  (require 'dap-js)
+  ;; --- Python (debugpy) ---
+  ;; Built-in dape config `debugpy` already handles python-mode / python-ts-mode.
+  ;; Defaults: justMyCode nil, showReturnValue t — matches our old dap-mode setup.
+  ;; Override command to dynamically resolve the venv python at debug time.
+  ;; The system may not have a bare `python` binary, and debugpy is only
+  ;; installed inside the project venv.
+  (defun my/dape-python-command ()
+    "Return the python executable from the active venv, or fall back to python3."
+    (cond
+     ;; pyvenv is active — use its python
+     ((and (boundp 'pyvenv-virtual-env) pyvenv-virtual-env)
+      (expand-file-name "bin/python" pyvenv-virtual-env))
+     ;; .venv in project root
+     ((and (fboundp 'projectile-project-root)
+           (file-executable-p (expand-file-name ".venv/bin/python" (projectile-project-root))))
+      (expand-file-name ".venv/bin/python" (projectile-project-root)))
+     ;; fallback
+     (t "python3")))
 
-  (setq dap-python-debugger 'debugpy)
-  (setq dap-python-executable "python3")
+  (let ((debugpy-config (alist-get 'debugpy dape-configs))
+        (debugpy-module-config (alist-get 'debugpy-module dape-configs)))
+    (when debugpy-config
+      (plist-put debugpy-config 'command #'my/dape-python-command))
+    (when debugpy-module-config
+      (plist-put debugpy-module-config 'command #'my/dape-python-command)))
 
-  (unless (and (boundp 'dap-js-path)
-               (file-exists-p (expand-file-name "src/dapDebugServer.js" dap-js-path)))
-    (dap-js-setup))
+  ;; --- Go (delve) ---
+  ;; Built-in dape config `dlv` handles go-mode / go-ts-mode.
+  ;; Uses `dlv dap --listen 127.0.0.1:<autoport>` — same adapter as before.
+  ;; Integration build tags are handled by gopls (LSP), not the debugger.
+  ;; For test debugging, use: M-x dape → dlv :mode "test" :program "."
 
-  (add-hook 'dap-stopped-hook
-            (lambda (arg) (call-interactively #'dap-ui-locals)))
+  ;; --- TypeScript / Node.js (js-debug) ---
+  ;; Built-in configs: js-debug-node, js-debug-ts-node, js-debug-tsx,
+  ;;                   js-debug-node-attach, js-debug-chrome
+  ;; Add tsx-ts-mode to all JS/TS debug configs so they appear in .tsx buffers
+  (dolist (config-name '(js-debug-ts-node js-debug-tsx js-debug-node-attach js-debug-chrome))
+    (when-let* ((config (alist-get config-name dape-configs)))
+      (let ((modes (plist-get config 'modes)))
+        (unless (memq 'tsx-ts-mode modes)
+          (plist-put config 'modes (append modes '(tsx-ts-mode)))))))
 
-  ;; Python debug template
-  (dap-register-debug-template "Python :: Run Current File"
-    (list :type "python"
-          :args ""
-          :cwd nil
-          :program nil
-          :request "launch"
-          :name "Python :: Run Current File"))
+  ;; --- Rust / C / C++ (lldb-dap) ---
+  ;; Uses lldb-dap-20 from LLVM. Has proper expression REPL (like debugpy).
+  ;; Override the built-in lldb-dap config to use the versioned binary name.
+  (when-let* ((lldb-config (alist-get 'lldb-dap dape-configs)))
+    (plist-put lldb-config 'command "lldb-dap-20"))
 
-  ;; Go debug template
-  (dap-register-debug-template "Go :: Run Current File"
-    (list :type "go"
-          :request "launch"
-          :name "Go :: Run Current File"
-          :mode "debug"
-          :program nil
-          :args nil))
+  ;; Helper: read the package name from Cargo.toml
+  (defun my/cargo-project-name ()
+    "Read the package name from Cargo.toml in the project root."
+    (let ((cargo-toml (expand-file-name "Cargo.toml" (projectile-project-root))))
+      (when (file-exists-p cargo-toml)
+        (with-temp-buffer
+          (insert-file-contents cargo-toml)
+          (when (re-search-forward "^name *= *\"\\([^\"]+\\)\"" nil t)
+            (match-string 1))))))
 
-  ;; Node.js / TypeScript debug templates
-  (dap-register-debug-template "Node :: Attach (JS/TS)"
-    (list :type "pwa-node"
-          :request "attach"
-          :name "Node :: Attach (JS/TS)"
-          :address "localhost"
-          :port 9229
-          :restart t
-          :sourceMaps t
-          :skipFiles ["<node_internals>/**" "**/node_modules/**"]
-          :resolveSourceMapLocations ["${workspaceFolder}/**" "!**/node_modules/**"]))
+  ;; Add a Rust-specific dape config that auto-builds and auto-detects binary
+  ;; Usage: SPC d d → rust-lldb (just hit Enter, no :program needed)
+  (add-to-list 'dape-configs
+               `(rust-lldb
+                 modes (rustic-mode rust-mode rust-ts-mode)
+                 ensure dape-ensure-command
+                 command "lldb-dap-20"
+                 command-cwd dape-command-cwd
+                 compile "cargo build"
+                 :cwd "."
+                 :program ,(lambda ()
+                             (let ((name (my/cargo-project-name)))
+                               (if name
+                                   (concat "target/debug/" (replace-regexp-in-string "-" "_" name))
+                                 "target/debug/a.out")))
+                 :args []))
 
-  (dap-register-debug-template "Node :: Launch TS File (ts-node)"
-    (list :type "pwa-node"
-          :request "launch"
-          :name "Node :: Launch TS File (ts-node)"
-          :program nil
-          :cwd nil
-          :address "localhost"
-          :runtimeExecutable "node"
-          :runtimeArgs ["--require" "ts-node/register" "--enable-source-maps"]
-          :skipFiles ["<node_internals>/**" "**/node_modules/**"]
-          :sourceMaps t
-          :resolveSourceMapLocations ["${workspaceFolder}/**" "!**/node_modules/**"]))
-
-  ;; Rust debug function — prompts for template then binary
-  (defun my/dap-rust-debug ()
-    "Launch Rust debugger with template selection."
-    (interactive)
-    (let* ((root (projectile-project-root))
-           (template (completing-read "Template: "
-                                      '("Rust :: Run Binary"
-                                        "Rust :: Run Test")
-                                      nil t)))
-      (if (string= template "Rust :: Run Test")
-          (progn
-            (message "Compiling tests...")
-            (shell-command-to-string
-             (concat "cd " root " && cargo test --no-run 2>&1"))
-            (let* ((deps-dir (concat root "target/debug/deps/"))
-                   (test-binaries (seq-filter
-                                   (lambda (f)
-                                     (and (file-executable-p (concat deps-dir f))
-                                          (not (string-match-p "\\." f))))
-                                   (directory-files deps-dir nil nil t)))
-                   (binary (completing-read "Test binary: " test-binaries nil t)))
-              (dap-debug
-               (list :type "lldb"
-                     :request "launch"
-                     :name template
-                     :program (concat deps-dir binary)
-                     :cwd root
-                     :args (list "--nocapture")))))
-        (progn
-          (message "Building...")
-          (shell-command-to-string
-           (concat "cd " root " && cargo build 2>&1"))
-          (dap-debug
-           (list :type "lldb"
-                 :request "launch"
-                 :name template
-                 :program (read-file-name "Binary: " (concat root "target/debug/"))
-                 :cwd root))))))
-
-  (map! :after dap-mode
-        :map rustic-mode-map
-        :localleader
-        :desc "Debug Rust" "D" #'my/dap-rust-debug))
+  ;; Also add a test variant
+  (add-to-list 'dape-configs
+               `(rust-lldb-test
+                 modes (rustic-mode rust-mode rust-ts-mode)
+                 ensure dape-ensure-command
+                 command "lldb-dap-20"
+                 command-cwd dape-command-cwd
+                 compile "cargo test --no-run"
+                 :cwd "."
+                 :program ,(lambda ()
+                             (let* ((root (projectile-project-root))
+                                    (deps-dir (concat root "target/debug/deps/"))
+                                    (test-binaries
+                                     (when (file-directory-p deps-dir)
+                                       (seq-filter
+                                        (lambda (f)
+                                          (and (file-executable-p (concat deps-dir f))
+                                               (not (string-match-p "\\." f))))
+                                        (directory-files deps-dir nil nil t)))))
+                               (if test-binaries
+                                   (concat "target/debug/deps/"
+                                           (completing-read "Test binary: " test-binaries nil t))
+                                 "target/debug/deps/")))
+                 :args ["--nocapture"]))
+  )
 
 
 ;; -------------------------------
@@ -581,42 +633,48 @@
        :desc "Kill project buffers" "P" #'doom/kill-project-buffers
        :desc "IBuffer" "I" #'ibuffer))
 
-;; Auto-load dap-mode for programming modes
-(add-hook 'go-mode-hook #'dap-mode)
-(add-hook 'python-mode-hook #'dap-mode)
-(add-hook 'typescript-mode-hook #'dap-mode)
-(add-hook 'tsx-ts-mode-hook #'dap-mode)
-(add-hook 'typescript-ts-mode-hook #'dap-mode)
-(add-hook 'js-mode-hook #'dap-mode)
-(add-hook 'rustic-mode-hook #'dap-mode)
 
-;; DAP keybindings
-(map! :after dap-mode
-      :map dap-mode-map
-      :localleader
-      (:prefix ("d" . "debug")
-       :desc "Start debugging" "d" #'dap-debug
-       :desc "Toggle breakpoint" "b" #'dap-breakpoint-toggle
-       :desc "Conditional breakpoint" "c" #'dap-breakpoint-condition
-       :desc "Delete breakpoint" "x" #'dap-breakpoint-delete
-       :desc "List breakpoints" "l" #'dap-breakpoint-list
-       :desc "Continue" "r" #'dap-continue
-       :desc "Next" "n" #'dap-next
-       :desc "Step in" "i" #'dap-step-in
-       :desc "Step out" "o" #'dap-step-out
-       :desc "Quit" "q" #'dap-disconnect
-       :desc "Eval at point" "e" #'dap-eval-thing-at-point
-       :desc "View locals" "v" #'dap-ui-locals))
 
 
 (use-package! repeat
-  :custom
-  (repeat-mode +1))
+  :config
+  (repeat-mode 1))
 
 ;; Left and right side windows occupy full frame height
 (use-package! emacs
   :custom
   (window-sides-vertical t))
+
+;; -------------------------------
+;; Quality of Life (Karthinks batteries)
+;; -------------------------------
+
+;; subword-mode — CamelCase-aware word navigation for Go/TS/Rust
+;; Makes w/b/e/dw stop at CamelCase boundaries: getUserById → get|User|By|Id
+(add-hook 'go-mode-hook #'subword-mode)
+(add-hook 'go-ts-mode-hook #'subword-mode)
+(add-hook 'typescript-mode-hook #'subword-mode)
+(add-hook 'typescript-ts-mode-hook #'subword-mode)
+(add-hook 'tsx-ts-mode-hook #'subword-mode)
+(add-hook 'rustic-mode-hook #'subword-mode)
+(add-hook 'rust-ts-mode-hook #'subword-mode)
+(add-hook 'js-mode-hook #'subword-mode)
+(add-hook 'js-ts-mode-hook #'subword-mode)
+
+;; duplicate-dwim — duplicate line or region (like Ctrl+Shift+D in VSCode)
+(map! :n "C-S-d" #'duplicate-dwim
+      :v "C-S-d" #'duplicate-dwim)
+
+;; view-read-only — pager-like bindings in read-only buffers
+;; SPC to scroll, q to quit, s to search. Great for browsing library source.
+(setq view-read-only t)
+
+;; undelete-frame-mode — undo accidental frame close
+(undelete-frame-mode 1)
+
+;; find-function-on-key — jump from keybinding to source code in one step
+(map! :leader
+      :desc "Find function on key" "h M-k" #'find-function-on-key)
 
 
 ;; -------------------------------
@@ -651,11 +709,8 @@
 ;; -------------------------------
 ;; React & Next.js Snippets (TypeScript)
 ;; -------------------------------
-(use-package! yasnippet
-  :config
-  (yas-global-mode 1))
-
 ;; Enhanced React/Next.js snippets for TypeScript
+(after! yasnippet
 (yas-define-snippets 'tsx-ts-mode
                      '(("rfc"
                         "import React from 'react';\n\nexport default function ${1:Component}() {\n  return (\n    <div>$0</div>\n  );\n}"
@@ -691,17 +746,16 @@
 
                        ("hono"
                         "import { Hono } from 'hono';\n\nconst app = new Hono();\n\napp.get('/${1:path}', (c) => {\n  return c.json({ $0 });\n});\n\nexport default app;"
-                        "Hono API route")))
+                        "Hono API route"))))
 
 ;; Optional: better syntax highlighting via tree-sitter
+;; Tree-sitter highlighting for non-ts-mode buffers only.
+;; *-ts-mode (typescript-ts-mode, tsx-ts-mode) already use built-in tree-sitter;
+;; adding the external tree-sitter-mode on top is redundant and may conflict.
 (after! tree-sitter
   (add-hook 'typescript-mode-hook #'tree-sitter-mode)
-  (add-hook 'typescript-ts-mode-hook #'tree-sitter-mode)
-  (add-hook 'tsx-ts-mode-hook #'tree-sitter-mode)
   (add-hook 'typescript-mode-hook #'tree-sitter-hl-mode)
-  (add-hook 'typescript-ts-mode-hook #'tree-sitter-hl-mode)
-  (add-hook 'tsx-ts-mode-hook #'tree-sitter-hl-mode)
-  ;; Rust tree-sitter
+  ;; Rust tree-sitter (rustic-mode is not a -ts-mode)
   (add-hook 'rustic-mode-hook #'tree-sitter-mode)
   (add-hook 'rustic-mode-hook #'tree-sitter-hl-mode))
 
@@ -722,9 +776,9 @@
 ;; -------------------------------
 (when (and (fboundp 'native-comp-available-p)
            (native-comp-available-p))
-  ;; Set the directory for native compilation cache
-  (setq native-comp-eln-load-path
-        (list (expand-file-name "eln-cache/" user-emacs-directory)))
+  ;; Add project eln-cache to native compilation load path (don't replace the list)
+  (add-to-list 'native-comp-eln-load-path
+               (expand-file-name "eln-cache/" user-emacs-directory))
 
   ;; Silence compiler warnings
   (setq native-comp-async-report-warnings-errors nil)
@@ -807,9 +861,6 @@
   (setq acp-api-key (getenv "ANTHROPIC_AUTH_TOKEN"))
   (setq acp-anthropic-api-url (getenv "ANTHROPIC_BASE_URL")))
 
-;; Add npm global bin to exec-path so Emacs can find claude-agent-acp
-(add-to-list 'exec-path (expand-file-name "~/.npm-global/bin"))
-
 (use-package! agent-shell
   :after (shell-maker acp)
   :commands (agent-shell agent-shell-send-region)
@@ -819,8 +870,8 @@
         (or (getenv "ANTHROPIC_DEFAULT_SONNET_MODEL")
             "vertex_ai/claude-sonnet-4-5")))
 
-;; Set up keybindings for agent-shell
-(map! :leader
-      :prefix ("g" . "agent-shell")
-      :desc "Start agent shell" "s" #'agent-shell
-      :desc "Agent shell send region" "r" #'agent-shell-send-region)
+;; Open agent-shell in a bottom side window (half height)
+(set-popup-rule! "^\\*agent-shell\\*" :side 'bottom :size 0.4 :select t :quit nil)
+
+;; Agent shell — no keybinding to avoid which-key conflicts
+;; Use M-x agent-shell and M-x agent-shell-send-region
