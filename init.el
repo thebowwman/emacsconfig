@@ -12,6 +12,8 @@
 (require 'init-lsp)
 (require 'init-git)
 (require 'init-snippets)
+(require 'init-ai)
+(require 'init-rust)
 (require 'init-python)
 
 ;; Keep Emacs-written settings out of this file

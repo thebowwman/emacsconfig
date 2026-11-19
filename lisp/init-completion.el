@@ -14,5 +14,17 @@
   :init
   (global-corfu-mode 1))
 
+(use-package marginalia
+  :init
+  (marginalia-mode 1))
+
+(use-package embark
+  :bind (("C-." . embark-act)
+         ("C-;" . embark-dwim)))
+
+(use-package embark-consult
+  :after (embark consult)
+  :hook (embark-collect-mode . consult-preview-at-point-mode))
+
 (provide 'init-completion)
 ;;; init-completion.el ends here

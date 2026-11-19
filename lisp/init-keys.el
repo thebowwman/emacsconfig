@@ -48,7 +48,6 @@
     "s"  '(:ignore t :which-key "search")
     "ss" '(consult-line :which-key "search in buffer")
     "sp" '(consult-ripgrep :which-key "search in project")
-    "bb" '(consult-buffer :which-key "switch buffer")
     "w"  '(:ignore t :which-key "windows")
     "wh" '(evil-window-left :which-key "window left")
     "wj" '(evil-window-down :which-key "window down")
@@ -58,7 +57,24 @@
     "ws" '(evil-window-split :which-key "split horizontal")
     "wv" '(evil-window-vsplit :which-key "split vertical")
     "wd" '(evil-window-delete :which-key "delete window")
-    "wm" '(delete-other-windows :which-key "maximize window")))
+    "wm" '(delete-other-windows :which-key "maximize window")
+    "f"  '(:ignore t :which-key "files")
+    "ff" '(find-file :which-key "find file")
+    "fr" '(recentf-open :which-key "recent files")))
+
+
+(use-package avy)
+
+(my/leader
+  "j"  '(:ignore t :which-key "jump")
+  "jj" '(avy-goto-char-timer :which-key "jump to text")
+  "jl" '(avy-goto-line :which-key "jump to line"))
+
+(use-package helpful
+  :bind (("C-h f" . helpful-callable)
+         ("C-h v" . helpful-variable)
+         ("C-h k" . helpful-key)
+         ("C-h x" . helpful-command)))
 
 (provide 'init-keys)
 ;;; init-keys.el ends here

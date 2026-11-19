@@ -37,5 +37,26 @@
 (my/leader
   "to" '(my/toggle-terminal :which-key "terminal"))
 
+
+(use-package treemacs
+  :defer t
+  :custom
+  (treemacs-width 30))
+
+(defun my/toggle-treemacs ()
+  "Show the project tree on the left, or hide it if it's visible."
+  (interactive)
+  (let ((win (seq-some (lambda (w)
+                         (and (string-match-p "[Tt]reemacs"
+                                              (buffer-name (window-buffer w)))
+                              w))
+                       (window-list))))
+    (if win
+        (delete-window win)
+      (treemacs))))
+
+(my/leader
+  "tt" '(my/toggle-treemacs :which-key "file tree"))
+
 (provide 'init-project)
 ;;; init-project.el ends here

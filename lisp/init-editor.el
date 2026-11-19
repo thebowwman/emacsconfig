@@ -18,5 +18,13 @@
   (with-eval-after-load 'evil
     (evil-define-key 'normal dired-mode-map
       (kbd "TAB") #'dired-subtree-toggle)))
+
+
+;; Highlight TODO, FIXME, and similar words in code
+(use-package hl-todo
+  :hook (prog-mode . hl-todo-mode))
+
+(setq org-agenda-files '("~/org/"))
+
 (provide 'init-editor)
 ;;; init-editor.el ends here
