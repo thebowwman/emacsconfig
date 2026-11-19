@@ -1,0 +1,7 @@
+# -*- mode: snippet -*-
+# name: dataclass
+# key: dc
+# --
+@dataclass(eq=False, kw_only=True)
+class ${1:Name}(${2:BaseRecord}):
+    ${3:field}: ${4:str}$0

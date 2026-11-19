@@ -1,0 +1,14 @@
+elpa/
+eln-cache/
+tree-sitter/
+auto-save-list/
+recentf.eld
+history
+projects.eld
+tramp
+custom.el
+.local/
+ielm-history.eld
+transient/
+*.swo
+*.swp
